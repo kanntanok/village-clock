@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "ピクセル農村時計",
+  "short_name": "農村時計",
+  "description": "日本時間と連続ログインで発展するピクセル農村時計",
+  "lang": "ja-JP",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b1030",
+  "theme_color": "#0b1030",
+  "icons": [
+    { "src": "./icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

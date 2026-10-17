@@ -182,6 +182,17 @@ body.crt #panel{animation:crtP 1.1s ease-in forwards}
 body.off #panel{opacity:0}
 #panel{transition:opacity 1.1s ease .1s}
 body.nopanel #panel{opacity:0!important;transition:opacity .4s ease}
+#dock{align-items:center}
+#dockBtns{display:flex;gap:8px;pointer-events:none;visibility:hidden;transition:visibility 0s linear .4s}
+#dock.open #dockBtns{pointer-events:auto;visibility:visible;transition-delay:0s}
+#dockBtns .pbtn{opacity:0;transform:translateX(16px) scale(.94);transition:opacity .16s ease,transform .22s cubic-bezier(.2,.8,.25,1);transition-delay:calc(var(--i) * 28ms)}
+#dock.open #dockBtns .pbtn{opacity:1;transform:none;transition-delay:calc((3 - var(--i)) * 34ms)}
+#buildBtn{--i:0}#placeBtn{--i:1}#recBtn{--i:2}#setBtn{--i:3}
+#dockT .t1{transition:transform .2s cubic-bezier(.3,.7,.3,1)}   /* ▼ を90°回して ◀ に（入れ替えではなく連続して変化） */
+#dock.open #dockT .t1{transform:rotate(90deg)}
+#dock .mi{margin:0}
+#dock .pbtn{white-space:nowrap}
+@media (max-width:420px){#dockBtns{gap:3px}#dock{gap:3px;right:max(6px,env(safe-area-inset-right))}#dock .pbtn{font-size:12px;padding-left:5px;padding-right:5px;border-width:8px;border-image-width:8px}}
 </style>
 <link rel="apple-touch-icon" href="./icon.PNG">
 <link rel="icon" type="image/png" href="./icon.PNG">
@@ -200,9 +211,13 @@ body.nopanel #panel{opacity:0!important;transition:opacity .4s ease}
 </div>
 
 <div id="dock">
+  <div id="dockBtns">
   <button id="buildBtn" class="pbtn" type="button">ビルド</button>
   <button id="placeBtn" class="pbtn" type="button">配置</button>
-  <button id="recBtn" class="pbtn" type="button" aria-label="メニュー"><canvas class="mi" data-mi="menu"></canvas>メニュー</button>
+  <button id="recBtn" class="pbtn" type="button">ログイン記録</button>
+  <button id="setBtn" class="pbtn" type="button" aria-label="設定"><canvas class="mi" data-mi="gear"></canvas></button>
+  </div>
+  <button id="dockT" class="pbtn" type="button" aria-expanded="false" aria-label="ボタンを開く"><canvas class="mi t1" data-mi="triD"></canvas></button>
 </div>
 
 <div id="modal" class="hide" role="dialog" aria-modal="true" aria-labelledby="mTitle">
@@ -220,14 +235,6 @@ body.nopanel #panel{opacity:0!important;transition:opacity .4s ease}
 <script>try{var v=sessionStorage.getItem('pvc.boot');if(v){var b=document.getElementById('blk'),sn=sessionStorage.getItem('pvc.snap');sessionStorage.removeItem('pvc.boot');sessionStorage.removeItem('pvc.snap');
 if(v==='imp'&&sn){b.style.backgroundImage='url('+sn+')';b.style.backgroundSize='100% 100%';b.style.imageRendering='pixelated';b.style.transitionDuration='.9s'}
 b.className='on';document.body.classList.add('nopanel');setTimeout(function(){document.body.classList.remove('nopanel')},1000);requestAnimationFrame(function(){requestAnimationFrame(function(){b.className='fade'})})}}catch(e){}</script>
-<div id="menu" class="hide" role="dialog" aria-modal="true" aria-labelledby="menuT">
-  <div class="card mcard">
-    <h2 id="menuT"><canvas class="mi" data-mi="menu"></canvas>メニュー</h2>
-    <button type="button" class="pbtn wide" id="mLogin"><canvas class="mi" data-mi="user"></canvas>ログイン情報</button>
-    <button type="button" class="pbtn wide" id="mSet"><canvas class="mi" data-mi="gear"></canvas>設定</button>
-    <button type="button" class="pbtn" id="mClose">閉じる</button>
-  </div>
-</div>
 <div id="smodal" class="hide" role="dialog" aria-modal="true" aria-labelledby="setT">
   <div class="card mcard">
     <h2 id="setT"><canvas class="mi" data-mi="gear"></canvas>設定</h2>
@@ -490,7 +497,7 @@ function openModal() {
 function closeModal() { $('modal').classList.add('hide'); clearTimeout(modalTimer); }
 $('goBtn').addEventListener('click', closeModal);
 $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
-$('recBtn').addEventListener('click', () => show('menu'));
+
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 /* =====================================================================
@@ -1242,7 +1249,7 @@ function setTheme(acc) {
 const ICOL = { K: '#14101f', W: '#ffffff', w: '#d9def2', g: '#9aa3c9', G: '#4b5280', Y: '#ffd34a', z: '#fff3a8', y: '#e0a82a',
   O: '#ff8a3c', P: '#ff9ec4', p: '#d6679a', B: '#3a7bd5', b: '#244f9a', L: '#bfe9ff', R: '#e8453a', r: '#9a1f1f',
   N: '#d9a867', n: '#a0703c', D: '#2b2b36', Q: '#8798f0', q: '#2e3b86', T: '#2fb7a8', t: '#1b7f76', U: '#8ef0e0' };
-const ICONS = {"pencil": ["...........KPPK.", "..........KPPPPK", ".........KwGPPpp", "........KzzwGppp", ".......KzzYYgGpK", "......KzzYYyygK.", ".....KzzYYyyOK..", "....KzzYYyyOK...", "...KzzYYyyOK....", "..KzzYYyyOK.....", ".KNzYYyyOK......", ".KNNYyyOK.......", ".KNNnyOK........", ".KNnnnK.........", "KDKKKK..........", ".K.............."], "eraser": ["................", "................", "................", "................", "...KKKKKKKKKK...", "..KwwgPPPPPPPK..", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", "..KgggpppppppK..", "...KKKKKKKKKK...", "................", "................", "................"], "dropper": [".KKKK...........", "KRRrrK..........", "KRRRrrK.........", "KWWRRrKK........", "KRRRRRggK.......", ".KRRRwwgK.......", "..KKWWLLgK......", "...KWWLLbgK.....", "....KKWBBbgK....", "......KWBBbgK...", ".......KWBBbK...", "........KWBwK...", ".........KKK.K..", "............KBK.", "............KBK.", "............KbK."], "arrowR": ["............", "......K.....", ".....KWK....", ".....KWWK...", ".KKKKKWWWK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KKKKKWWWK..", ".....KWWK...", ".....KWK....", "......K.....", "............"], "arrowL": ["............", ".....K......", "....KWK.....", "...KWWK.....", "..KWWWKKKKK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", "..KWWWKKKKK.", "...KWWK.....", "....KWK.....", ".....K......", "............"], "arrowD": [".....KK.....", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", "..KWWWWWWK..", "...KWWWWK...", "....KWWK....", ".....KK.....", "............"], "arrowU": ["............", ".....KK.....", "....KWWK....", "...KWWWWK...", "..KWWWWWWK..", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", ".....KK....."], "undo": ["............", "...K........", "..KWK.......", ".KWWKKKKKK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KWWKKKKWWK.", "..KWKKKKWWK.", "...KWWWWWWK.", "...KWWWWWWK.", "....KKKKKK..", "............"], "redo": ["............", "........K...", ".......KWK..", "..KKKKKKWWK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", ".KWWKKKKWWK.", ".KWWKKKKWK..", ".KWWWWWWK...", ".KWWWWWWK...", "..KKKKKK....", "............"], "close": ["................", "................", "...KK......KK...", "..KWgK....KwWK..", "..KwWgK..KwWgK..", "...KwWgKKwWgK...", "....KwWgwWgK....", ".....KwWWgK.....", ".....KwWWgK.....", "....KwWgwWgK....", "...KwWgKKwWgK...", "..KwWgK..KwWgK..", "..KWgK....KwWK..", "...KK......KK...", "................", "................"], "plus": ["............", ".....KK.....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", ".....KK.....", "............"], "trash": ["......KKKK......", ".....KgwwgK.....", "..KKKKggggKKKK..", ".KWWWWWWWWWWWWK.", ".KggggggggggggK.", "..KWwwwwwwwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwwwwwwwgK..", "...KggggggggK...", "....KKKKKKKK...."], "list": ["...KKKKKKKKKK...", "..KWWWWWWWWWWK..", ".KQWWWWWWWWWWqK.", ".KQLWWWWWWWWLqK.", ".KQLWRRWGGGWLqK.", ".KQLWRRWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWYYWGGGWLqK.", ".KQLWYYWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWBBWGGGWLqK.", ".KQLWBBWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQggggggggggqK.", "..KqqqqqqqqqqK..", "...KKKKKKKKKK..."], "pin": ["................", "......KKKK......", ".....KRRrrK.....", "....KRRRrrrK....", "...KRRRWwrrrK...", "...KRRWWwwrrK...", "...KRRWWwwrrK...", "...KRRRWwrrrK...", "...KRRRRrrrrK...", "....KRRRrrrK....", ".....KRRrrK.....", ".....KRRrrK.....", "......KRrK......", "......KRrK......", ".......KK.......", "................"], "user": ["................", "......KKKK......", ".....KWWWWK.....", "....KWWWWWWK....", "....KWWWWWwK....", "....KWWWWwwK....", "....KWWWwwwK....", "....KWWwwwwK....", ".....KwwwwK.....", ".....KKKKKK.....", "...KKWWWWwwKK...", "..KWWWWWWwwwwK..", ".KWWWWWWWwwwwwK.", ".KWWWWWWWwwwwwK.", ".KwwwwwwggggggK.", "..KKKKKKKKKKKK.."], "gear": ["................", "......KKKK......", "...KKKWWWWKKK...", "..KWWKWWWwKwwK..", "..KWWWWWwwwwwK..", "..KKWWWwwwwwKK..", ".KWWWWKKKKwwggK.", ".KWWWwK..KwgggK.", ".KWWwwK..KggggK.", ".KWwwwKKKKggggK.", "..KKwwwwggggKK..", "..KwwwwggggggK..", "..KwwKggggKggK..", "...KKKggggKKK...", "......KKKK......", "................"], "menu": ["................", "................", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "................", "................"], "out": [".......KK.......", "......KWgK......", ".....KWWWgK.....", "....KWWWWWgK....", "...KWWWWWWWgK...", "..KWWWWWWWWWgK..", "...KKKWWWgKKK...", ".....KWWWgK.....", ".....KWWWgK.....", ".KK..KWWWgK..KK.", "KWWK.KWWWgK.KqqK", "KQQK..KKKK..KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."], "inn": ["......KKKK......", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", "...KKKWWWgKKK...", "..KWWWWWWWWWgK..", "...KWWWWWWWgK...", "....KWWWWWgK....", ".KK..KWWWgK..KK.", "KWWK..KWgK..KqqK", "KQQK...KK...KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."]};
+const ICONS = {"triD": ["................", "................", "................", "................", "..KKKKKKKKKKKK..", "..KWWWWWWWWwgK..", "...KWWWWWWwgK...", "....KWWWWwgK....", ".....KWWwgK.....", "......KWgK......", ".......KK.......", "................", "................", "................", "................", "................"], "triL": ["................", "................", "..........KK....", ".........KWK....", "........KWWK....", ".......KWWWK....", "......KWWWWK....", ".....KWWWWWK....", ".....KgwWWWK....", "......KgwWWK....", ".......KgwWK....", "........KgwK....", ".........KgK....", "..........KK....", "................", "................"], "pencil": ["...........KPPK.", "..........KPPPPK", ".........KwGPPpp", "........KzzwGppp", ".......KzzYYgGpK", "......KzzYYyygK.", ".....KzzYYyyOK..", "....KzzYYyyOK...", "...KzzYYyyOK....", "..KzzYYyyOK.....", ".KNzYYyyOK......", ".KNNYyyOK.......", ".KNNnyOK........", ".KNnnnK.........", "KDKKKK..........", ".K.............."], "eraser": ["................", "................", "................", "................", "...KKKKKKKKKK...", "..KwwgPPPPPPPK..", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", "..KgggpppppppK..", "...KKKKKKKKKK...", "................", "................", "................"], "dropper": [".KKKK...........", "KRRrrK..........", "KRRRrrK.........", "KWWRRrKK........", "KRRRRRggK.......", ".KRRRwwgK.......", "..KKWWLLgK......", "...KWWLLbgK.....", "....KKWBBbgK....", "......KWBBbgK...", ".......KWBBbK...", "........KWBwK...", ".........KKK.K..", "............KBK.", "............KBK.", "............KbK."], "arrowR": ["............", "......K.....", ".....KWK....", ".....KWWK...", ".KKKKKWWWK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KKKKKWWWK..", ".....KWWK...", ".....KWK....", "......K.....", "............"], "arrowL": ["............", ".....K......", "....KWK.....", "...KWWK.....", "..KWWWKKKKK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", "..KWWWKKKKK.", "...KWWK.....", "....KWK.....", ".....K......", "............"], "arrowD": [".....KK.....", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", "..KWWWWWWK..", "...KWWWWK...", "....KWWK....", ".....KK.....", "............"], "arrowU": ["............", ".....KK.....", "....KWWK....", "...KWWWWK...", "..KWWWWWWK..", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", ".....KK....."], "undo": ["............", "...K........", "..KWK.......", ".KWWKKKKKK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KWWKKKKWWK.", "..KWKKKKWWK.", "...KWWWWWWK.", "...KWWWWWWK.", "....KKKKKK..", "............"], "redo": ["............", "........K...", ".......KWK..", "..KKKKKKWWK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", ".KWWKKKKWWK.", ".KWWKKKKWK..", ".KWWWWWWK...", ".KWWWWWWK...", "..KKKKKK....", "............"], "close": ["................", "................", "...KK......KK...", "..KWgK....KwWK..", "..KwWgK..KwWgK..", "...KwWgKKwWgK...", "....KwWgwWgK....", ".....KwWWgK.....", ".....KwWWgK.....", "....KwWgwWgK....", "...KwWgKKwWgK...", "..KwWgK..KwWgK..", "..KWgK....KwWK..", "...KK......KK...", "................", "................"], "plus": ["............", ".....KK.....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", ".....KK.....", "............"], "trash": ["......KKKK......", ".....KgwwgK.....", "..KKKKggggKKKK..", ".KWWWWWWWWWWWWK.", ".KggggggggggggK.", "..KWwwwwwwwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwwwwwwwgK..", "...KggggggggK...", "....KKKKKKKK...."], "list": ["...KKKKKKKKKK...", "..KWWWWWWWWWWK..", ".KQWWWWWWWWWWqK.", ".KQLWWWWWWWWLqK.", ".KQLWRRWGGGWLqK.", ".KQLWRRWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWYYWGGGWLqK.", ".KQLWYYWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWBBWGGGWLqK.", ".KQLWBBWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQggggggggggqK.", "..KqqqqqqqqqqK..", "...KKKKKKKKKK..."], "pin": ["................", "......KKKK......", ".....KRRrrK.....", "....KRRRrrrK....", "...KRRRWwrrrK...", "...KRRWWwwrrK...", "...KRRWWwwrrK...", "...KRRRWwrrrK...", "...KRRRRrrrrK...", "....KRRRrrrK....", ".....KRRrrK.....", ".....KRRrrK.....", "......KRrK......", "......KRrK......", ".......KK.......", "................"], "user": ["................", "......KKKK......", ".....KWWWWK.....", "....KWWWWWWK....", "....KWWWWWwK....", "....KWWWWwwK....", "....KWWWwwwK....", "....KWWwwwwK....", ".....KwwwwK.....", ".....KKKKKK.....", "...KKWWWWwwKK...", "..KWWWWWWwwwwK..", ".KWWWWWWWwwwwwK.", ".KWWWWWWWwwwwwK.", ".KwwwwwwggggggK.", "..KKKKKKKKKKKK.."], "gear": ["................", "......KKKK......", "...KKKWWWWKKK...", "..KWWKWWWwKwwK..", "..KWWWWWwwwwwK..", "..KKWWWwwwwwKK..", ".KWWWWKKKKwwggK.", ".KWWWwK..KwgggK.", ".KWWwwK..KggggK.", ".KWwwwKKKKggggK.", "..KKwwwwggggKK..", "..KwwwwggggggK..", "..KwwKggggKggK..", "...KKKggggKKK...", "......KKKK......", "................"], "menu": ["................", "................", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "................", "................"], "out": [".......KK.......", "......KWgK......", ".....KWWWgK.....", "....KWWWWWgK....", "...KWWWWWWWgK...", "..KWWWWWWWWWgK..", "...KKKWWWgKKK...", ".....KWWWgK.....", ".....KWWWgK.....", ".KK..KWWWgK..KK.", "KWWK.KWWWgK.KqqK", "KQQK..KKKK..KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."], "inn": ["......KKKK......", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", "...KKKWWWgKKK...", "..KWWWWWWWWWgK..", "...KWWWWWWWgK...", "....KWWWWWgK....", ".KK..KWWWgK..KK.", "KWWK..KWgK..KqqK", "KQQK...KK...KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."]};
 function paintTo(cv, key) {
   const m = ICONS[key]; if (!m) return;
   const n = m.length, pd = n === 16 ? 1 : 0;           // 16マスの絵は周囲に1マスの余白を足して枠に触れないようにする
@@ -1962,6 +1969,11 @@ setInterval(() => { if (LOC.on && document.visibilityState === 'visible') syncLo
    ===================================================================== */
 paintIcons();
 const show = id => $(id).classList.remove('hide'), hide = id => $(id).classList.add('hide');
+$('recBtn').addEventListener('click', () => openModal());
+$('setBtn').addEventListener('click', () => { refreshSet(); show('smodal'); });
+$('dockT').addEventListener('click', () => {                    // ▼ ⇄ ◀ : ボタン群を左へ展開/収納
+  const o = $('dock').classList.toggle('open'); $('dockT').setAttribute('aria-expanded', o ? 'true' : 'false'); $('dockT').setAttribute('aria-label', o ? 'ボタンを閉じる' : 'ボタンを開く');
+});
 const sMsg = t => { $('sMsg').textContent = t || ''; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const bonusFor = n => n >= 8 ? Math.min(10, Math.floor(n / 4)) : 0;   // 8日以上で獲得 / 4日ごとに+1 / 最大10ピクセル(約2.5時間分)
@@ -1970,20 +1982,16 @@ function refreshSet() {
   $('sBonus').textContent = `全データを消去して最初から。連続ログイン ${n}日 → ` + (b ? `ボーナス ${b}ピクセル` : 'ボーナスなし（8日以上で獲得）');
   sMsg('');
 }
-$('mLogin').addEventListener('click', () => { hide('menu'); openModal(); });
-$('mSet').addEventListener('click', () => { hide('menu'); refreshSet(); show('smodal'); });
-$('mClose').addEventListener('click', () => hide('menu'));
 $('sClose').addEventListener('click', () => hide('smodal'));
-$('menu').addEventListener('click', e => { if (e.target === $('menu')) hide('menu'); });
 $('smodal').addEventListener('click', e => { if (e.target === $('smodal')) hide('smodal'); });
-addEventListener('keydown', e => { if (e.key === 'Escape') { hide('menu'); hide('smodal'); } });
+addEventListener('keydown', e => { if (e.key === 'Escape') { hide('smodal'); } });
 
 // ---- 演出の状態 ----
 const FX = { k: null, t0: 0, dur: 1 };
 const CAT = { on: false, t0: 0, t: 0, crt: false };
 const CAT_Q = 2.5, CAT_PRE = 12.5, CAT_K = (10.2 + CAT_Q) / CAT_PRE;   // 地震2.5 → 噴火〜暗転10.2（演出時間）を実時間15.5秒に
 async function cinema(kind, dur) {
-  ['menu', 'smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
+  ['smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
   document.body.classList.add('cine', 'nopanel'); await sleep(450);
   FX.k = kind; FX.dur = dur; FX.t0 = performance.now(); await sleep(dur); FX.k = null;
 }
@@ -2196,7 +2204,7 @@ $('iFile').addEventListener('change', async e => {
   const ok = await askConfirm(`現在のデータは上書きされます。\n（連続ログイン ${d.rec.streak}日 / Lv.${d.rec.stage + 1}）\nインポートしますか？`, 'インポート', 'キャンセル');
   if (!ok) return;
   SUSPEND = true;
-  ['menu', 'smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
+  ['smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
   document.body.classList.add('cine', 'nopanel'); await sleep(450);
   FX.swapped = false; FX.swap = () => { BUILD = d.build; buildItems(d.rec.stage); };
   FX.k = 'imp'; FX.dur = 4500; FX.t0 = performance.now(); await sleep(4900); FX.k = null;
@@ -2216,7 +2224,7 @@ $('sRst').addEventListener('click', async () => {
   if (!await askConfirm(`保存されているデータをすべて消去し、最初からやり直します。\n連続ログイン ${n}日 → ` + (b ? `ボーナス ${b}ピクセル` : 'ボーナスなし（8日以上で獲得）'), '次へ', 'キャンセル')) return;
   if (!await askConfirm('本当にリセットしますか？\nこの操作は取り消せません。', 'リセットする', 'キャンセル')) return;
   SUSPEND = true;
-  ['menu', 'smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
+  ['smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
   document.body.classList.add('cine', 'nopanel');          // 時計も消して背景だけを映す
   CAT.on = true; CAT.t = 0; CAT.t0 = performance.now();
   setTimeout(() => {

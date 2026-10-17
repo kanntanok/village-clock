@@ -117,8 +117,8 @@ canvas.ic{display:block;width:36px;height:36px}
   border:6px solid transparent;border-image:var(--f-inset) 24 fill/6px stretch;padding:3px 6px}
 .pin:focus{filter:brightness(1.35)}
 .pin:disabled{opacity:.45}
-.cframe{width:fit-content;max-width:100%;margin:10px auto 8px;line-height:0}
-#bCanvas{display:block;width:min(calc(86vw - 24px),340px);height:auto;touch-action:none;cursor:crosshair;
+.cframe{box-sizing:border-box;width:min(100%,364px);margin:10px auto 8px;line-height:0}
+#bCanvas{display:block;width:100%;height:auto;touch-action:none;cursor:crosshair;
   -webkit-user-select:none;user-select:none;background:#111633}
 .trow{display:flex;justify-content:space-between;align-items:center;gap:8px;width:min(100%,364px);margin:0 auto}
 .tgrp{display:flex;gap:6px}
@@ -155,18 +155,36 @@ canvas.ic{display:block;width:36px;height:36px}
 
 /* ===== 設置画面の構造物一覧・呼び出し確認 ===== */
 .pv{display:flex;flex-direction:column;align-items:center;gap:6px}
-.pv .cframe{margin:6px auto 4px}
-#pvCanvas{display:block;width:min(60vw,220px);height:auto;background:#111633}
+.pv .cframe{margin:6px auto 4px;width:min(100%,244px)}
+#pvCanvas{display:block;width:100%;height:auto;background:#111633}
 .pv b{font-weight:normal;font-size:18px;color:var(--accent);text-shadow:2px 2px 0 #000;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #bUndo canvas.ic,#bRedo canvas.ic{width:24px;height:24px}
 @media (max-width:420px){.trow .tgrp{gap:4px}.trow .pbtn.ib{padding-left:3px;padding-right:3px}}
 
 .chip[hidden]{display:none}
 #locBtn canvas.ic{width:24px;height:24px}
+
+/* ===== メニュー・設定・演出 ===== */
+#menu,#smodal{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;transition:opacity .35s;z-index:12;background:rgba(5,8,20,.58)}
+#menu.hide,#smodal.hide{opacity:0;pointer-events:none}
+.mi{width:36px;height:36px;image-rendering:pixelated;vertical-align:middle;margin:0 6px 0 0;flex:none}
+canvas.ic.g16{width:36px;height:36px}
+.mcard{display:flex;flex-direction:column;gap:8px;min-width:min(78vw,300px);padding-bottom:10px}
+.mcard h2,#mTitle{display:flex;align-items:center;justify-content:flex-start;margin:0 0 8px}
+.srow small{display:block;font-size:11px;line-height:1.4;color:#c6d1f7;margin:2px 4px 6px}
+#sMsg{min-height:1.3em;font-size:12px;color:#ffd36e;text-align:center}
+#blk{position:fixed;inset:0;background:#000;z-index:90;pointer-events:none;opacity:0}
+#blk.on{opacity:1}#blk.fade{opacity:0;transition:opacity 1.6s ease-out}
+body.cine #dock,body.cine .chips,body.cine .date,body.cine #gain,body.cine #dbg,body.cine #dbgT,
+body.cine #modal,body.cine #bmodal,body.cine #lmodal,body.cine #cmodal,body.cine #pvmodal,body.cine #menu,body.cine #smodal{opacity:0!important;pointer-events:none!important;transition:opacity .4s}
+@keyframes crtP{0%{transform:translateX(-50%) scale(1,1);filter:brightness(1)}60%{transform:translateX(-50%) scale(1,.03);filter:brightness(3)}100%{transform:translateX(-50%) scale(.02,.01);filter:brightness(4);opacity:0}}
+body.crt #panel{animation:crtP 1.1s ease-in forwards}
+body.off #panel{opacity:0}
+#panel{transition:opacity 1.1s ease .1s}
+body.nopanel #panel{opacity:0!important;transition:opacity .4s ease}
 </style>
 <link rel="apple-touch-icon" href="./icon.PNG">
 <link rel="icon" type="image/png" href="./icon.PNG">
-
 </head>
 <body>
 <canvas id="world"></canvas>
@@ -182,15 +200,14 @@ canvas.ic{display:block;width:36px;height:36px}
 </div>
 
 <div id="dock">
-  <button id="locBtn" class="pbtn ib" type="button" aria-label="現在地の天気と同期" title="現在地の天気と同期"><canvas class="ic" data-ico="pin"></canvas></button>
   <button id="buildBtn" class="pbtn" type="button">ビルド</button>
   <button id="placeBtn" class="pbtn" type="button">配置</button>
-  <button id="recBtn" class="pbtn" type="button">ログイン記録</button>
+  <button id="recBtn" class="pbtn" type="button" aria-label="メニュー"><canvas class="mi" data-mi="menu"></canvas>メニュー</button>
 </div>
 
 <div id="modal" class="hide" role="dialog" aria-modal="true" aria-labelledby="mTitle">
   <div class="card">
-    <h2 id="mTitle">ログイン記録</h2>
+    <h2 id="mTitle"><canvas class="mi" data-mi="user"></canvas>ログイン記録</h2>
     <div id="rows"></div>
     <div class="msg" id="msg"></div>
     <button class="pbtn go" id="goBtn" type="button">村へ行く</button>
@@ -199,6 +216,34 @@ canvas.ic{display:block;width:36px;height:36px}
 </div>
 
 <div id="gain" role="status"></div>
+<div id="blk"></div>
+<script>try{var v=sessionStorage.getItem('pvc.boot');if(v){var b=document.getElementById('blk'),sn=sessionStorage.getItem('pvc.snap');sessionStorage.removeItem('pvc.boot');sessionStorage.removeItem('pvc.snap');
+if(v==='imp'&&sn){b.style.backgroundImage='url('+sn+')';b.style.backgroundSize='100% 100%';b.style.imageRendering='pixelated';b.style.transitionDuration='.9s'}
+b.className='on';document.body.classList.add('nopanel');setTimeout(function(){document.body.classList.remove('nopanel')},1000);requestAnimationFrame(function(){requestAnimationFrame(function(){b.className='fade'})})}}catch(e){}</script>
+<div id="menu" class="hide" role="dialog" aria-modal="true" aria-labelledby="menuT">
+  <div class="card mcard">
+    <h2 id="menuT"><canvas class="mi" data-mi="menu"></canvas>メニュー</h2>
+    <button type="button" class="pbtn wide" id="mLogin"><canvas class="mi" data-mi="user"></canvas>ログイン情報</button>
+    <button type="button" class="pbtn wide" id="mSet"><canvas class="mi" data-mi="gear"></canvas>設定</button>
+    <button type="button" class="pbtn" id="mClose">閉じる</button>
+  </div>
+</div>
+<div id="smodal" class="hide" role="dialog" aria-modal="true" aria-labelledby="setT">
+  <div class="card mcard">
+    <h2 id="setT"><canvas class="mi" data-mi="gear"></canvas>設定</h2>
+    <div class="srow"><button type="button" class="pbtn wide" id="locBtn"><canvas class="mi" data-mi="pin"></canvas><span id="locTxt">現在地の天気と同期</span></button></div>
+    <div class="srow"><button type="button" class="pbtn wide" id="sExp"><canvas class="mi" data-mi="out"></canvas>エクスポート</button>
+      <small>村のデータをファイルに書き出します（位置情報は含みません）</small></div>
+    <div class="srow"><button type="button" class="pbtn wide" id="sImp"><canvas class="mi" data-mi="inn"></canvas>インポート</button>
+      <small>書き出したファイルを読み込み、現在のデータを上書きします</small></div>
+    <div class="srow"><button type="button" class="pbtn wide red" id="sRst"><canvas class="mi" data-mi="trash"></canvas>リセット</button>
+      <small id="sBonus"></small></div>
+    <div id="sMsg" role="status"></div>
+    <button type="button" class="pbtn" id="sClose">閉じる</button>
+    <input type="file" id="iFile" accept="application/json,.json" hidden>
+  </div>
+</div>
+
 
 <!-- ===== ビルド画面 ===== -->
 <div id="bmodal" class="hide" role="dialog" aria-modal="true" aria-labelledby="bTitle">
@@ -276,7 +321,7 @@ canvas.ic{display:block;width:36px;height:36px}
 <div id="cmodal" class="hide" role="alertdialog" aria-modal="true" aria-labelledby="cMsg">
   <div class="card cc">
     <p id="cMsg"></p>
-    <div class="btns"><button type="button" class="pbtn" id="cNo">やめる</button><button type="button" class="pbtn red" id="cOk">削除</button></div>
+    <div class="btns"><button type="button" class="pbtn" id="cNo">キャンセル</button><button type="button" class="pbtn red" id="cOk">削除</button></div>
   </div>
 </div>
 
@@ -322,6 +367,7 @@ const num = (k, lo, hi) => QP.has(k) ? Math.max(lo, Math.min(hi, parseFloat(QP.g
 const PV = { stage: num('stage', 0, 5), hour: num('hour', 0, 24), month: num('month', 1, 12), wx: QP.get('wx'), south: QP.get('south') === '1' };
 const PREVIEW = PV.stage !== null || PV.hour !== null || PV.month !== null || !!PV.wx || PV.south;
 const START = Date.now();
+let SUSPEND = false;   // 入出力・リセット中は保存を止める（reload時の上書き防止）
 
 /* =====================================================================
    日本時間 (Asia/Tokyo)
@@ -363,7 +409,7 @@ function loadRec() {
   catch (e) { persistOK = false; return memRec; }
 }
 function saveRec(o) {
-  memRec = o;
+  memRec = o; if (SUSPEND) return;
   try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { persistOK = false; }
 }
 function registerLogin() {
@@ -444,7 +490,7 @@ function openModal() {
 function closeModal() { $('modal').classList.add('hide'); clearTimeout(modalTimer); }
 $('goBtn').addEventListener('click', closeModal);
 $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
-$('recBtn').addEventListener('click', openModal);
+$('recBtn').addEventListener('click', () => show('menu'));
 addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
 /* =====================================================================
@@ -521,14 +567,22 @@ function buildSky() {
   const r = rng(11); stars = [];
   for (let i = 0; i < 100; i++) stars.push({ x: r() * W | 0, y: r() * (56 + OY) | 0, p: r() * 6.28, b: r() < 0.16 });
 }
+// ピンチ拡大では変わらない「レイアウト上の」画面サイズ（innerWidth は拡大で変動する端末がある）
+const layoutSize = () => ({ w: document.documentElement.clientWidth || innerWidth || 1, h: document.documentElement.clientHeight || innerHeight || 1 });
+let _lw = 0, _lh = 0, _rt = 0;
+function scheduleResize() {
+  clearTimeout(_rt);
+  _rt = setTimeout(() => { const L = layoutSize(); if (L.w === _lw && L.h === _lh) return; resizeWorld(); bgKey = ''; }, 120);
+}
 function resizeWorld() {
-  const vw = innerWidth || 1, vh = innerHeight || 1;
+  const L = layoutSize(), vw = L.w, vh = L.h;
+  _lw = vw; _lh = vh;
   H = Math.max(108, Math.min(420, Math.round(W * vh / vw)));
   OY = H - 108;
   main.width = W; main.height = H; layer.width = W; layer.height = H;
   buildSky();
   // 時計のドットサイズ（整数倍）
-  const sc = Math.max(3, Math.floor(Math.min(innerWidth * 0.72, 440, innerHeight * 0.3 * 27 / 9) / 27));
+  const sc = Math.max(3, Math.floor(Math.min(vw * 0.72, 440, vh * 0.3 * 27 / 9) / 27));
   $('time').style.width = 27 * sc + 'px'; $('time').style.height = 9 * sc + 'px';
   if (PL.active) applyPlaceScale();
 }
@@ -758,23 +812,29 @@ const VSCHED = [[5, 'home'], [5.5, 'home'], [6.3, 'work'], [12, 'work'], [12.6, 
   [17.8, 'plaza'], [19.8, 'plaza'], [21, 'home'], [21.2, 'home'], [29, 'home']];
 const VSHIRT = ['#c0392b', '#2e7d9a', '#7a9a2e', '#8e44ad'], VHAIR = ['#2a1a10', '#5a3a1a', '#222222', '#6a4a2a'];
 function villager(v, i) {
-  if (WX.kind === 'rain' || WX.kind === 'storm') return;          // 雨の日は家の中
+  if (!CAT.on && (WX.kind === 'rain' || WX.kind === 'storm')) return;          // 雨の日は家の中
   let h = HF - v.off; if (h < 5) h += 24;
   let k = 0; while (k < VSCHED.length - 2 && VSCHED[k + 1][0] <= h) k++;
   const a = VSCHED[k], b = VSCHED[k + 1], t = clamp((h - a[0]) / (b[0] - a[0]), 0, 1);
   const pa = v[a[1]], pb = v[b[1]], mv = a[1] !== b[1];
-  const st = mv ? 'walk' : a[1] === 'home' ? 'sleep' : a[1] === 'work' ? 'work' : (h < 14 ? 'eat' : 'chat');
-  if (st === 'sleep') return;
-  const X = Math.round(pa.x + (pb.x - pa.x) * t), Y = Math.round(pa.y + (pb.y - pa.y) * t);
+  let st = mv ? 'walk' : a[1] === 'home' ? 'sleep' : a[1] === 'work' ? 'work' : (h < 14 ? 'eat' : 'chat');
+  if (st === 'sleep' && !CAT.on) return;
+  let X = Math.round(pa.x + (pb.x - pa.x) * t), Y = Math.round(pa.y + (pb.y - pa.y) * t);
+  if (CAT.on && CAT.t > 1.5) {                                    // 噴火: 村人はパニックで逃げ惑う
+    st = 'panic'; const pt = CAT.t - 1.5, dir = i % 2 ? 1 : -1;
+    X = Math.round(clamp(X + dir * pt * (6 + (i % 4) * 2.5) + Math.sin(T * 3 + i) * 5, 2, W - 4)); Y = clamp(Y + Math.round(Math.sin(T * 2 + i * 2) * 3), 84, 100);
+    lg.globalAlpha = clamp(1 - (CAT.t - 8.5) / 1.5, 0, 1);
+  }
   const c = mix(VSHIRT[i % 4], '#7a7f99', 0.3), hair = mix(VHAIR[i % 4], '#555a70', 0.2), skin = '#e3c19c', leg = '#3a3a4a', wood = '#8a6a40';
   const sw = st === 'work' ? Math.floor(T * 2 + i) % 2 : 0;       // 作業の振り下ろし
   const bob = st === 'chat' && Math.floor(T * 1.6 + i) % 2 ? 1 : 0; // 談笑の上下
   const by = Y - (st === 'eat' ? 1 : 0) - bob;
   if (v.child) { R(X, by - 4 + sw, 2, 1, hair); R(X, by - 3 + sw, 2, 1, skin); R(X, by - 2 + sw, 2, 1, c); }
   else { R(X, by - 6 + sw, 2, 1, hair); R(X, by - 5 + sw, 2, 1, skin); R(X, by - 4 + sw, 2, 2, c); }
+  if (st === 'panic') { const a = Math.floor(T * 8 + i) % 2; R(X - 1, by - 7 + a, 1, 2, skin); R(X + 2, by - 7 + (1 - a), 1, 2, skin); }
   if (st === 'eat') { R(X, by - 2, 3, 1, leg); R(X + 3, by - 1, 1, 1, '#d9c9a0'); }
   else {
-    const f = st === 'walk' ? Math.floor(T * 4 + i) % 2 : 0, lh = v.child ? 1 : 2, ly = Y - lh;
+    const f = (st === 'walk' || st === 'panic') ? Math.floor(T * (st === 'panic' ? 9 : 4) + i) % 2 : 0, lh = v.child ? 1 : 2, ly = Y - lh;
     R(X, ly, 1, lh - (f && !v.child ? 1 : 0), leg); R(X + 1, ly, 1, lh - (!f && st === 'walk' && !v.child ? 1 : 0), leg);
   }
   if (st === 'work') {                                            // 道具: 農具/ハンマー
@@ -835,7 +895,7 @@ function buildItems(st) {
     const wk = role === 0 ? { x: p.x + 4 + (i * 7) % Math.max(1, p.w - 8), y: 93 }
       : role === 1 ? { x: wls[(i >> 1) % wls.length] + (i * 3) % 5 - 2, y: 90 } : { x: clamp(hx + 12 + (i % 3) * 3, 4, 188), y: 89 };
     const v = { role, child: st >= 3 && i % 5 === 4, off: (i % 6) * 0.1, home: { x: hx, y: 86 }, work: wk, plaza: { x: 96 + ((i % 7) - 3) * 5, y: 88 + (i % 2) * 2 } };
-    add(96, () => villager(v, i));
+    { add(96, () => villager(v, i)); items[items.length - 1].v = 1; }
   }
   BUILD.structs.forEach(st => { if (st.placed) add(st.y + GW, () => drawStruct(st)); });
   items.sort((a, b) => a.y - b.y);
@@ -1062,7 +1122,8 @@ function updateUI(j, sr, ss) {
    ===================================================================== */
 let lastDraw = 0, T0 = 0;
 function render(ms) {
-  T = (ms - T0) / 1000;
+  if (CAT.crt) return;
+  T = (ms - T0) / 1000; if (CAT.on) CAT.t = (performance.now() - CAT.t0) / 1000 * CAT_K - CAT_Q;
   const j = view();
   const bv = bgView(j);
   S = SEA[seasonOf(bv.mo)]; WINTER = S.id === 'winter';
@@ -1083,7 +1144,7 @@ function render(ms) {
   lg.setTransform(1, 0, 0, 1, 0, OY); lg.globalAlpha = 1;
   lg.drawImage(bgc, 0, 0);
   river();
-  for (const it of items) it.fn();
+  drawItems();
   reeds();
   if (STAGE >= 5) festival();
   // 時間帯の色味
@@ -1098,6 +1159,7 @@ function render(ms) {
   drawLights(HF);
   drawWeather();
   drawWxOverlay();
+  drawFx(performance.now()); drawCat();
   if (PL.active) drawPlaceOverlay(); else if (FLASH.ids.length) drawFlash();
   updateUI(j, sr, ss);
 }
@@ -1179,16 +1241,20 @@ function setTheme(acc) {
 /* ---------- ドットアイコン ---------- */
 const ICOL = { K: '#14101f', W: '#ffffff', w: '#d9def2', g: '#9aa3c9', G: '#4b5280', Y: '#ffd34a', z: '#fff3a8', y: '#e0a82a',
   O: '#ff8a3c', P: '#ff9ec4', p: '#d6679a', B: '#3a7bd5', b: '#244f9a', L: '#bfe9ff', R: '#e8453a', r: '#9a1f1f',
-  N: '#d9a867', n: '#a0703c', D: '#2b2b36' };
-const ICONS = {"pencil": ["........KPpK", ".......KPPpK", "......KPPpK.", ".....KwggK..", "....KzYyK...", "...KzYyK....", "..KzYyK.....", ".KzYyK......", "KNNnK.......", "KNnK........", "KDK.........", ".K.........."], "eraser": ["............", ".KKKKKKKKKK.", "KLLLwWWWWWWK", "KWBBwWPPPPPK", "KBBBwPPPPPPK", "KBBBwPPPPPPK", "KBBBwPPPPPPK", "KbbbwppppppK", ".KKKKKKKKKK.", ".KgKgKgKgKgK", "..K.K.K.K.K.", "............"], "dropper": ["KrRRK.......", "KrRRWK......", ".KrRRWKK....", ".KGggwwWK...", "..KKBLLWK...", "....KBLLWK..", ".....KbBBWK.", "......KbBBWK", ".......KbBgK", "........KbGK", ".........KBK", "..........K."], "arrowR": ["............", "......K.....", ".....KWK....", ".....KWWK...", ".KKKKKWWWK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KKKKKWWWK..", ".....KWWK...", ".....KWK....", "......K.....", "............"], "arrowL": ["............", ".....K......", "....KWK.....", "...KWWK.....", "..KWWWKKKKK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", "..KWWWKKKKK.", "...KWWK.....", "....KWK.....", ".....K......", "............"], "arrowD": [".....KK.....", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", "..KWWWWWWK..", "...KWWWWK...", "....KWWK....", ".....KK.....", "............"], "arrowU": ["............", ".....KK.....", "....KWWK....", "...KWWWWK...", "..KWWWWWWK..", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", ".....KK....."], "undo": ["............", "...K........", "..KWK.......", ".KWWKKKKKK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KWWKKKKWWK.", "..KWKKKKWWK.", "...KWWWWWWK.", "...KWWWWWWK.", "....KKKKKK..", "............"], "redo": ["............", "........K...", ".......KWK..", "..KKKKKKWWK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", ".KWWKKKKWWK.", ".KWWKKKKWK..", ".KWWWWWWK...", ".KWWWWWWK...", "..KKKKKK....", "............"], "close": ["............", "..KK....KK..", ".KWWK..KWWK.", "..KWWKKWWK..", "...KWWWWK...", "....KWWK....", "...KWWWWK...", "..KWWKKWWK..", ".KWWK..KWWK.", ".KWK....KWK.", "..K......K..", "............"], "plus": ["............", ".....KK.....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", ".....KK.....", "............"], "trash": ["....KKKK....", "....KwwK....", ".KKKKKKKKKK.", ".KwwwwwwwwK.", ".KKKKKKKKKK.", "..KwgwwgwK..", "..KwgwwgwK..", "..KwgwwgwK..", "..KwgwwgwK..", "..KwgwwgwK..", "..KKKKKKKK..", "............"], "list": ["............", ".KKK.KKKKKK.", ".KWK.KWWWWK.", ".KKK.KKKKKK.", "............", ".KKK.KKKKKK.", ".KWK.KWWWWK.", ".KKK.KKKKKK.", "............", ".KKK.KKKKKK.", ".KWK.KWWWWK.", ".KKK.KKKKKK."], "pin": ["....KKKK....", "...KRRRRK...", "..KRWWRRrK..", "..KRWRRRrK..", "..KRRRRRrK..", "...KRRRrK...", "...KRRRrK...", "....KRrK....", "....KRrK....", ".....KK.....", "............", "............"]};
+  N: '#d9a867', n: '#a0703c', D: '#2b2b36', Q: '#8798f0', q: '#2e3b86', T: '#2fb7a8', t: '#1b7f76', U: '#8ef0e0' };
+const ICONS = {"pencil": ["...........KPPK.", "..........KPPPPK", ".........KwGPPpp", "........KzzwGppp", ".......KzzYYgGpK", "......KzzYYyygK.", ".....KzzYYyyOK..", "....KzzYYyyOK...", "...KzzYYyyOK....", "..KzzYYyyOK.....", ".KNzYYyyOK......", ".KNNYyyOK.......", ".KNNnyOK........", ".KNnnnK.........", "KDKKKK..........", ".K.............."], "eraser": ["................", "................", "................", "................", "...KKKKKKKKKK...", "..KwwgPPPPPPPK..", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", "..KgggpppppppK..", "...KKKKKKKKKK...", "................", "................", "................"], "dropper": [".KKKK...........", "KRRrrK..........", "KRRRrrK.........", "KWWRRrKK........", "KRRRRRggK.......", ".KRRRwwgK.......", "..KKWWLLgK......", "...KWWLLbgK.....", "....KKWBBbgK....", "......KWBBbgK...", ".......KWBBbK...", "........KWBwK...", ".........KKK.K..", "............KBK.", "............KBK.", "............KbK."], "arrowR": ["............", "......K.....", ".....KWK....", ".....KWWK...", ".KKKKKWWWK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KKKKKWWWK..", ".....KWWK...", ".....KWK....", "......K.....", "............"], "arrowL": ["............", ".....K......", "....KWK.....", "...KWWK.....", "..KWWWKKKKK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", "..KWWWKKKKK.", "...KWWK.....", "....KWK.....", ".....K......", "............"], "arrowD": [".....KK.....", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", "..KWWWWWWK..", "...KWWWWK...", "....KWWK....", ".....KK.....", "............"], "arrowU": ["............", ".....KK.....", "....KWWK....", "...KWWWWK...", "..KWWWWWWK..", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", ".....KK....."], "undo": ["............", "...K........", "..KWK.......", ".KWWKKKKKK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KWWKKKKWWK.", "..KWKKKKWWK.", "...KWWWWWWK.", "...KWWWWWWK.", "....KKKKKK..", "............"], "redo": ["............", "........K...", ".......KWK..", "..KKKKKKWWK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", ".KWWKKKKWWK.", ".KWWKKKKWK..", ".KWWWWWWK...", ".KWWWWWWK...", "..KKKKKK....", "............"], "close": ["................", "................", "...KK......KK...", "..KWgK....KwWK..", "..KwWgK..KwWgK..", "...KwWgKKwWgK...", "....KwWgwWgK....", ".....KwWWgK.....", ".....KwWWgK.....", "....KwWgwWgK....", "...KwWgKKwWgK...", "..KwWgK..KwWgK..", "..KWgK....KwWK..", "...KK......KK...", "................", "................"], "plus": ["............", ".....KK.....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", ".....KK.....", "............"], "trash": ["......KKKK......", ".....KgwwgK.....", "..KKKKggggKKKK..", ".KWWWWWWWWWWWWK.", ".KggggggggggggK.", "..KWwwwwwwwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwwwwwwwgK..", "...KggggggggK...", "....KKKKKKKK...."], "list": ["...KKKKKKKKKK...", "..KWWWWWWWWWWK..", ".KQWWWWWWWWWWqK.", ".KQLWWWWWWWWLqK.", ".KQLWRRWGGGWLqK.", ".KQLWRRWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWYYWGGGWLqK.", ".KQLWYYWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWBBWGGGWLqK.", ".KQLWBBWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQggggggggggqK.", "..KqqqqqqqqqqK..", "...KKKKKKKKKK..."], "pin": ["................", "......KKKK......", ".....KRRrrK.....", "....KRRRrrrK....", "...KRRRWwrrrK...", "...KRRWWwwrrK...", "...KRRWWwwrrK...", "...KRRRWwrrrK...", "...KRRRRrrrrK...", "....KRRRrrrK....", ".....KRRrrK.....", ".....KRRrrK.....", "......KRrK......", "......KRrK......", ".......KK.......", "................"], "user": ["................", "......KKKK......", ".....KWWWWK.....", "....KWWWWWWK....", "....KWWWWWwK....", "....KWWWWwwK....", "....KWWWwwwK....", "....KWWwwwwK....", ".....KwwwwK.....", ".....KKKKKK.....", "...KKWWWWwwKK...", "..KWWWWWWwwwwK..", ".KWWWWWWWwwwwwK.", ".KWWWWWWWwwwwwK.", ".KwwwwwwggggggK.", "..KKKKKKKKKKKK.."], "gear": ["................", "......KKKK......", "...KKKWWWWKKK...", "..KWWKWWWwKwwK..", "..KWWWWWwwwwwK..", "..KKWWWwwwwwKK..", ".KWWWWKKKKwwggK.", ".KWWWwK..KwgggK.", ".KWWwwK..KggggK.", ".KWwwwKKKKggggK.", "..KKwwwwggggKK..", "..KwwwwggggggK..", "..KwwKggggKggK..", "...KKKggggKKK...", "......KKKK......", "................"], "menu": ["................", "................", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "................", "................"], "out": [".......KK.......", "......KWgK......", ".....KWWWgK.....", "....KWWWWWgK....", "...KWWWWWWWgK...", "..KWWWWWWWWWgK..", "...KKKWWWgKKK...", ".....KWWWgK.....", ".....KWWWgK.....", ".KK..KWWWgK..KK.", "KWWK.KWWWgK.KqqK", "KQQK..KKKK..KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."], "inn": ["......KKKK......", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", "...KKKWWWgKKK...", "..KWWWWWWWWWgK..", "...KWWWWWWWgK...", "....KWWWWWgK....", ".KK..KWWWgK..KK.", "KWWK..KWgK..KqqK", "KQQK...KK...KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."]};
+function paintTo(cv, key) {
+  const m = ICONS[key]; if (!m) return;
+  const n = m.length, pd = n === 16 ? 1 : 0;           // 16マスの絵は周囲に1マスの余白を足して枠に触れないようにする
+  cv.width = cv.height = n + pd * 2;
+  cv.classList.toggle('g16', n === 16);
+  const x = cv.getContext('2d');
+  x.clearRect(0, 0, n + pd * 2, n + pd * 2);
+  m.forEach((row, y) => { for (let i = 0; i < n; i++) { const c = row[i]; if (c !== '.') { x.fillStyle = ICOL[c]; x.fillRect(i + pd, y + pd, 1, 1); } } });
+}
 function paintIcons() {
-  document.querySelectorAll('canvas.ic').forEach(cv => {
-    const m = ICONS[cv.dataset.ico]; if (!m) return;
-    cv.width = cv.height = 12;
-    const x = cv.getContext('2d');
-    x.clearRect(0, 0, 12, 12);
-    m.forEach((row, y) => { for (let i = 0; i < 12; i++) { const c = row[i]; if (c !== '.') { x.fillStyle = ICOL[c]; x.fillRect(i, y, 1, 1); } } });
-  });
+  document.querySelectorAll('canvas.ic').forEach(cv => paintTo(cv, cv.dataset.ico));
+  document.querySelectorAll('canvas[data-mi]').forEach(cv => paintTo(cv, cv.dataset.mi));
 }
 function drawCoinIcons() {
   const C = { o: '#5a3a10', h: '#fff0b0', b: '#f4b73a', d: '#c98a1e', s: '#ffd45a' };
@@ -1232,6 +1298,7 @@ function sanitizeBuild(o) {
 }
 function loadBuild() { try { const r = localStorage.getItem(BKEY); if (r) return sanitizeBuild(JSON.parse(r)); } catch (e) { buildStorageOK = false; } return null; }
 function saveBuild() {
+  if (SUSPEND) return;
   try { localStorage.setItem(BKEY, JSON.stringify(BUILD, (k, v) => (k === '_c' || k === '_v') ? undefined : v)); } catch (e) { buildStorageOK = false; }
 }
 BUILD = loadBuild() || BUILD;
@@ -1293,11 +1360,11 @@ addEventListener('pagehide', saveBuild);
 
 /* ---------- 確認ダイアログ（自前） ---------- */
 let cResolve = null;
-function askConfirm(msg, okText) {
+function askConfirm(msg, okText, noText) {
   return new Promise(resolve => {
     if (cResolve) cResolve(false);
     cResolve = resolve;
-    $('cMsg').textContent = msg; $('cOk').textContent = okText || '削除';
+    $('cMsg').textContent = msg; $('cOk').textContent = okText || '削除'; $('cNo').textContent = noText || 'キャンセル';
     $('cmodal').classList.remove('hide');
     $('cNo').focus();
   });
@@ -1350,7 +1417,7 @@ function renderList() {
   $('bRows').innerHTML = rows.map(st => `<tr data-id="${escH(st.id)}" class="${st.id === curId ? 'cur' : ''}"><td><canvas></canvas></td>` +
     `<td class="bn">${escH(st.name)}</td><td>${st.placed ? '設置済み' : '未設置'}</td><td>${pixCount(st)}</td>` +
     `<td><div class="bact"><button type="button" class="pbtn sm${st.id === curId ? ' dis' : ''}" data-act="edit"${st.id === curId ? ' disabled aria-disabled="true"' : ''}>編集</button>` +
-    `<button type="button" class="pbtn sm" data-act="place">${st.placed ? '位置変更' : '設置'}</button>` +
+    `<button type="button" class="pbtn sm${st.id === curId ? ' dis' : ''}" data-act="place"${st.id === curId ? ' disabled aria-disabled="true"' : ''}>${st.placed ? '位置変更' : '設置'}</button>` +
     `<button type="button" class="pbtn sm red" data-act="del">削除</button></div></td></tr>`).join('');
   $('bRows').querySelectorAll('tr').forEach((tr2, i) => drawThumb(tr2.querySelector('canvas'), rows[i]));
 }
@@ -1770,6 +1837,7 @@ function loadLoc() {
   } catch (e) {}
 }
 function saveLoc() {
+  if (SUSPEND) return;
   try { localStorage.setItem(LKEY, JSON.stringify({ on: LOC.on, lat: LOC.lat, lon: LOC.lon, tz: LOC.tz, sr: LOC.sr, ss: LOC.ss, at: LOC.at, wx: { kind: WX.kind, gray: WX.gray, int: WX.int, cloudsMax: WX.cloudsMax } })); } catch (e) {}
 }
 const lfmt = {};
@@ -1872,12 +1940,13 @@ async function syncLoc(interactive) {
 function renderLoc() {
   $('locBtn').classList.toggle('on', LOC.on);
   $('locBtn').setAttribute('aria-pressed', LOC.on ? 'true' : 'false');
+  $('locTxt').textContent = LOC.on ? '現在地の同期を停止' : '現在地の天気と同期';
   const ch = $('wxChip');
   if (LOC.on) { ch.hidden = false; ch.textContent = LOC.tz.split('/').pop().replace(/_/g, ' ') + '　' + WXNAME[WX.kind]; } else ch.hidden = true;
 }
 $('locBtn').addEventListener('click', async () => {
   if (LOC.on) {
-    const ok = await askConfirm('現在地との同期をやめますか？\n背景は日本の季節・時間帯に戻ります。', 'やめる');
+    const ok = await askConfirm('現在地との同期をやめますか？\n背景は日本の季節・時間帯に戻ります。', '取得を停止', 'キャンセル');
     if (ok) { LOC.on = false; setWx(null); _bj = null; saveLoc(); renderLoc(); }
   } else {
     $('locBtn').disabled = true;
@@ -1887,10 +1956,289 @@ $('locBtn').addEventListener('click', async () => {
 loadLoc(); renderLoc();
 if (LOC.on && Date.now() - LOC.at > 30 * 60 * 1000) syncLoc(false);
 setInterval(() => { if (LOC.on && document.visibilityState === 'visible') syncLoc(false); }, 30 * 60 * 1000);
+
+/* =====================================================================
+   メニュー / 設定 / エクスポート・インポート / リセット演出
+   ===================================================================== */
+paintIcons();
+const show = id => $(id).classList.remove('hide'), hide = id => $(id).classList.add('hide');
+const sMsg = t => { $('sMsg').textContent = t || ''; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const bonusFor = n => n >= 8 ? Math.min(10, Math.floor(n / 4)) : 0;   // 8日以上で獲得 / 4日ごとに+1 / 最大10ピクセル(約2.5時間分)
+function refreshSet() {
+  const n = REC.streak, b = bonusFor(n);
+  $('sBonus').textContent = `全データを消去して最初から。連続ログイン ${n}日 → ` + (b ? `ボーナス ${b}ピクセル` : 'ボーナスなし（8日以上で獲得）');
+  sMsg('');
+}
+$('mLogin').addEventListener('click', () => { hide('menu'); openModal(); });
+$('mSet').addEventListener('click', () => { hide('menu'); refreshSet(); show('smodal'); });
+$('mClose').addEventListener('click', () => hide('menu'));
+$('sClose').addEventListener('click', () => hide('smodal'));
+$('menu').addEventListener('click', e => { if (e.target === $('menu')) hide('menu'); });
+$('smodal').addEventListener('click', e => { if (e.target === $('smodal')) hide('smodal'); });
+addEventListener('keydown', e => { if (e.key === 'Escape') { hide('menu'); hide('smodal'); } });
+
+// ---- 演出の状態 ----
+const FX = { k: null, t0: 0, dur: 1 };
+const CAT = { on: false, t0: 0, t: 0, crt: false };
+const CAT_Q = 2.5, CAT_PRE = 12.5, CAT_K = (10.2 + CAT_Q) / CAT_PRE;   // 地震2.5 → 噴火〜暗転10.2（演出時間）を実時間15.5秒に
+async function cinema(kind, dur) {
+  ['menu', 'smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
+  document.body.classList.add('cine', 'nopanel'); await sleep(450);
+  FX.k = kind; FX.dur = dur; FX.t0 = performance.now(); await sleep(dur); FX.k = null;
+}
+function drawItems() {
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (CAT.on && CAT.t > 3.5 && !it.v) {            // 建物の崩壊: 揺れながら沈み、灰に埋もれる
+      const c = clamp((CAT.t - 3.5) / 5.5, 0, 1), k = 0.4 + 0.6 * ((i * 37) % 10) / 10;
+      lg.save(); lg.translate(Math.round(Math.sin(T * 25 + i * 3) * (1 - c) * 1.2), Math.round(c * c * 9 * k)); lg.globalAlpha = 1 - 0.8 * c; it.fn(); lg.restore();
+    } else { it.fn(); if (it.v) lg.globalAlpha = 1; }
+  }
+}
+function drawImp(ms) {   // ①上から暗転 → ②全面が暗くなる → ③下から読み込みバーが上昇し、バーより下に新データの村が現れる
+  const e = ms - FX.t0, P1 = 1100, P2 = 1600, D2 = 2900;
+  if (e >= P1 && !FX.swapped) { FX.swapped = true; FX.swap(); }   // 真っ暗になった瞬間に新データへ差し替える
+  const band = (y, a) => {                                      // 読み込みバー: 白い芯 + 流れる色セグメント + 影
+    ctx.fillStyle = `rgba(255,255,255,${a})`; ctx.fillRect(0, y, W, 1);
+    const sh = Math.floor(ms / 60);
+    for (let x = 0; x < W; x += 6) { const c = (x / 6 + sh) % 5; ctx.fillStyle = ['#7fe8ff', '#ffd36e', '#ff8fc0', '#a8ff9a', '#ffffff'][c]; ctx.globalAlpha = a * (0.55 + 0.45 * ((x / 6 + sh) % 2)); ctx.fillRect(x, y + 1, 5, 3); }
+    ctx.globalAlpha = 1; ctx.fillStyle = `rgba(20,30,60,${0.9 * a})`; ctx.fillRect(0, y + 4, W, 1);
+  };
+  if (e < P1) {                                                 // ① 上から暗くなる
+    const sy = Math.round(H * (e / P1) * (e / P1) * 0.4 + H * (e / P1) * 0.6);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, sy);
+    for (let k = 0; k < 14; k++) { ctx.fillStyle = `rgba(0,0,0,${0.7 * (1 - k / 14)})`; ctx.fillRect(0, sy + k, W, 1); }
+    for (let x = sy % 2; x < W; x += 2) { ctx.fillStyle = '#000'; ctx.fillRect(x, sy, 1, 2); }   // ドット調の縁
+    ctx.fillStyle = 'rgba(150,170,210,.7)'; ctx.fillRect(0, sy + 2, W, 1);
+    return;
+  }
+  if (e < P2) {                                                 // ② 全面が暗い
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < 18; i++) { ctx.fillStyle = `rgba(127,232,255,${0.25 + 0.4 * hash(i + Math.floor(ms / 120))})`; ctx.fillRect(Math.floor(hash(i * 3 + Math.floor(ms / 120)) * W), Math.floor(hash(i * 7) * H), 2, 1); }
+    return;
+  }
+  const q = clamp((e - P2) / D2, 0, 1), k = q < 0.5 ? 2 * q * q : 1 - Math.pow(-2 * q + 2, 2) / 2, sy = Math.round((H + 5) * (1 - k) - 5);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, Math.max(0, sy));  // バーより上は黒、下は新データの背景
+  if (q >= 1) return;
+  for (let y = 0; y < sy; y += 4) { ctx.fillStyle = 'rgba(127,232,255,.05)'; ctx.fillRect(0, y, W, 1); }
+  for (let b = 0; b < 46; b++) {                                // 黒い領域を昇るデータの粒
+    const x = Math.floor(hash(b) * W), up = ((ms * (0.03 + hash(b + 5) * 0.05) + hash(b + 9) * 400) % Math.max(20, sy)), y = sy - up;
+    if (y < 0) continue; ctx.fillStyle = `rgba(${b % 3 ? '127,232,255' : '255,211,110'},${0.8 * (1 - up / Math.max(20, sy))})`;
+    if (b % 4 === 0) ctx.fillRect(x, y, 3, 1); else ctx.fillRect(x, y, 1, 1 + b % 3);
+  }
+  for (let g = 0; g < 12; g++) { ctx.fillStyle = `rgba(127,232,255,${0.3 * (1 - g / 12)})`; ctx.fillRect(0, sy - 1 - g, W, 1); }
+  for (let g = 0; g < 8; g++) { ctx.fillStyle = `rgba(255,255,255,${0.2 * (1 - g / 8)})`; ctx.fillRect(0, sy + 5 + g, W, 1); }   // 現れた直後の光
+  band(sy, 1);
+}
+function drawFx(ms) {
+  if (!FX.k) return;
+  if (FX.k === 'imp') return drawImp(ms);
+  const p = clamp((ms - FX.t0) / FX.dur, 0, 1), up = FX.k === 'exp', e = Math.sin(p * Math.PI);
+  const col = up ? '127,232,255' : '255,211,110';
+  ctx.save(); ctx.fillStyle = `rgba(0,0,0,${0.22 * e})`; ctx.fillRect(0, 0, W, H);
+  for (let c = 0; c < 26; c++) {                      // データの粒が昇る/降る
+    const x = c * 7 + 3 + (c % 3), sp = 26 + (c * 13) % 30, ph = (c * 29) % H, base = ((p * 2.2 * sp + ph) % (H + 10));
+    const hy = up ? H - base : base;
+    for (let k = 0; k < 7; k++) { const y = hy + (up ? k : -k) * 2; ctx.fillStyle = `rgba(${col},${(0.8 - k * 0.11) * e})`; ctx.fillRect(x, Math.round(y), 1, 1); }
+  }
+  const sy = up ? H * (1 - p) : H * p;                // 走査線
+  for (let k = 0; k < 16; k++) { ctx.fillStyle = `rgba(${col},${0.2 * e * (1 - k / 16)})`; ctx.fillRect(0, Math.round(sy + (up ? k : -k)), W, 1); }
+  ctx.fillStyle = `rgba(255,255,255,${0.9 * e})`; ctx.fillRect(0, Math.round(sy), W, 1);
+  ctx.restore();
+}
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5; return s - Math.floor(s); };
+function disc(x, y, r, c) { ctx.fillStyle = c; for (let d = -r; d <= r; d++) { const w = Math.floor(Math.sqrt(r * r - d * d)); ctx.fillRect(Math.round(x - w), Math.round(y + d), w * 2 + 1, 1); } }
+const CRT_T = 10.2, CRT_MS = 520;
+let _tmp = null;
+function crtStart() {                                  // ブラウン管: 画面全体(背景+時計パネル)を同時に潰して消す
+  CAT.crt = true; main.style.transform = '';
+  _tmp = document.createElement('canvas'); _tmp.width = W; _tmp.height = H; _tmp.getContext('2d').drawImage(main, 0, 0);
+  const pn = $('panel'), top0 = pn.getBoundingClientRect().top, cyv = layoutSize().h / 2, t0 = performance.now();
+  pn.style.transformOrigin = '50% 0';
+  (function step(now) {
+    const p = clamp((now - t0) / CRT_MS, 0, 1), a = clamp(p / 0.6, 0, 1), b = clamp((p - 0.6) / 0.4, 0, 1);
+    const sy = p < 0.6 ? Math.max(0.008, Math.pow(1 - a, 2.2)) : 0.008, sx = p < 0.6 ? 1 : Math.max(0.01, Math.pow(1 - b, 2.5));
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    if (p < 0.6) { const h = Math.max(1, sy * H); ctx.drawImage(_tmp, 0, 0, W, H, 0, (H - h) / 2, W, h); }
+    ctx.fillStyle = `rgba(255,255,255,${p < 0.6 ? 0.2 + 0.7 * a : 1 - b * b})`;
+    const w = Math.max(1, Math.round(W * sx)); ctx.fillRect(Math.round((W - w) / 2), Math.round(H / 2), w, 1);
+    pn.style.transform = `translate(-50%,${(cyv - top0) * (1 - sy)}px) scale(${sx},${sy})`;
+    pn.style.filter = `brightness(${1 + 2.5 * (p < 0.6 ? a : 1)})`; pn.style.opacity = p < 0.6 ? 1 : 1 - b * b;
+    if (p < 1) requestAnimationFrame(step); else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); pn.style.opacity = 0; }
+  })(t0);
+}
+function drawCat() {
+  if (!CAT.on || CAT.crt) { if (!CAT.on && main.style.transform) main.style.transform = ''; return; }
+  const t = CAT.t; if (t >= CRT_T) { crtStart(); return; }
+  const cx = 146, cy = 28 + OY, sm = (a, b) => clamp((t - a) / (b - a), 0, 1), fl = Math.floor(T * 8);
+  const sh = t < 1.5 ? 0.4 + 0.25 * (t + CAT_Q) : 1.7;   // 地震は徐々に強まり、噴火で最大
+  main.style.transform = `translate(${(Math.sin(T * 47) * sh).toFixed(1)}px,${(Math.cos(T * 39) * sh).toFixed(1)}px) scale(1.03)`;
+  ctx.save();
+  const sg = sm(1.5, 6), gr = ctx.createLinearGradient(0, 0, 0, H);               // 地獄の空
+  gr.addColorStop(0, `rgba(40,6,6,${0.85 * sg})`); gr.addColorStop(0.6, `rgba(170,38,14,${0.68 * sg})`); gr.addColorStop(1, `rgba(240,84,20,${0.7 * sg})`);
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  if (t > 1.4 && t < 2.2) { ctx.fillStyle = `rgba(255,240,200,${0.4 * (1 - (t - 1.4) / 0.8)})`; ctx.fillRect(0, 0, W, H); }
+  if (t < 1.6) { ctx.fillStyle = `rgba(255,90,30,${0.6 * sm(0, 1.5)})`; ctx.fillRect(cx - 3, cy - 1, 7, 3); }
+  const lp = sm(2.2, 7.5) * 38;                                                     // 斜面を伝う溶岩
+  for (let k = 0; k < 3; k++) {
+    const f = [-0.8, 0.05, 0.85][k];
+    for (let d = 0; d < lp; d++) {
+      const hw = Math.round(1 + Math.pow(d, 1.18) * 0.56), x = cx + Math.round(f * hw + Math.sin(d * 0.5 + k * 2) * 1.2);
+      ctx.fillStyle = d > lp - 3 ? '#fff3a0' : (d + fl) % 6 ? (d < lp * 0.6 ? '#ff7a22' : '#e8501c') : '#ffc040'; ctx.fillRect(x, 28 + d + OY, 2, 1);
+    }
+  }
+  if (lp > 37) { ctx.fillStyle = `rgba(255,96,30,${0.75 * sm(6.5, 8)})`; ctx.fillRect(cx - 42, 66 + OY, 84, 2); }
+  const rise = Math.pow(sm(1.5, 7), 0.8), rs = 0.3 + 0.7 * sm(1.5, 7.5);                                                        // 噴煙（もくもくした雲）
+  for (let j = 0; j < 64; j++) {
+    const u = j / 63; if (t < 1.5 || u > rise) break;                                          // 下から順に立ち上がる
+    const x = cx + Math.sin(u * 5 + T * 0.5) * 4 - u * u * 50 * sm(3, 8) + (hash(j) - 0.5) * (6 + u * 26) * rs, y = cy - u * (cy + 6) * 0.9 + Math.sin(T * 0.9 + j) * 1.5, r = Math.max(2, Math.round((3 + u * 11 + hash(j + 7) * 4) * rs));
+    disc(x, y, r, '#241c1e'); disc(x - 1, y - 1, r - 1, '#3a2f2f'); disc(x - 2, y - 2, Math.max(1, r - 4), '#524444');
+    if (u < 0.35) disc(x, y + r - 2, Math.max(1, r - 3), `rgba(255,${90 + j * 3},30,${0.5 * (0.35 - u) / 0.35})`);
+  }
+  // 空全体を包む噴煙。出現を遅らせ、雲の塊がゆっくり下方へ広がる。
+  // 上部は手前の大きな濃い煙、下部は奥の小さく薄い煙として重ね、地面までは降ろさない。
+  const cn = sm(6.0, 11.2);
+  if (cn > 0) {
+    const edge = 8 + cn * (42 + OY * 0.45); // 煙の下端。地面（66+OY）には届かない
+    ctx.save();
+    ctx.globalAlpha = 0.94 * cn;
+    // 空の青や噴火の赤が残らないよう、煙の内部を暗く覆う
+    ctx.fillStyle = '#211d20';
+    ctx.fillRect(0, 0, W, Math.max(0, Math.floor(edge - 5)));
+
+    // 奥側の煙：小さく、少し明るい灰褐色。下端は不揃いな雲形にする。
+    for (let j = 0; j < 44; j++) {
+      const x = hash(j + 150) * W;
+      const y = 8 + hash(j + 170) * Math.max(1, edge - 14);
+      const r = 3 + hash(j + 190) * 6;
+      ctx.globalAlpha = cn * (0.42 + hash(j + 210) * 0.22);
+      disc(x, y, r, '#403638');
+      disc(x - 1, y - 1, Math.max(1, r - 2), '#332b2e');
+    }
+
+    // 手前側の煙：画面上部を中心に大きな暗い雲塊を配置する。
+    for (let j = 0; j < 34; j++) {
+      const x = hash(j + 250) * W;
+      const y = hash(j + 270) * Math.max(8, edge * 0.72);
+      const r = 7 + hash(j + 290) * 10;
+      ctx.globalAlpha = cn * (0.72 + hash(j + 310) * 0.25);
+      disc(x, y, r, '#211d20');
+      disc(x - 2, y - 2, Math.max(2, r - 3), '#2c2528');
+      disc(x - 4, y - 3, Math.max(1, r - 7), '#393033');
+    }
+
+    // 下端の輪郭を煙の塊でつなぎ、平坦な矩形に見えないようにする。
+    for (let j = 0; j < 28; j++) {
+      const x = j * (W / 27) + (hash(j + 330) - 0.5) * 7;
+      const y = edge - 5 + (hash(j + 350) - 0.5) * 12;
+      const r = 5 + hash(j + 370) * 8;
+      ctx.globalAlpha = cn * 0.88;
+      disc(x, y, r, '#241f22');
+      disc(x - 1, y - 2, Math.max(1, r - 3), '#30282b');
+    }
+    ctx.restore();
+  }
+  if (t > 3 && Math.sin(T * 11) * Math.sin(T * 4.7) > 0.88) {                         // 稲妻
+    let x = 24 + (Math.floor(T * 11) * 37) % 150, y = 10; ctx.fillStyle = '#fff5d0';
+    while (y < cy - 8) { ctx.fillRect(x, y, 1, 3); x += hash(y + x) > 0.5 ? 1 : -1; y += 3; }
+  }
+  for (let j = 0; j < 24; j++) {                                                    // 村に降り注ぐ岩
+    const st = 2.8 + j * 0.28, per = 1.5 + hash(j) * 0.9; if (t < st) continue;
+    const ph = (t - st) % per, ft = per * 0.65, fp = ph / ft, tx = 10 + hash(j + 20) * 175, gy = 88 + OY + hash(j + 40) * 14, s = 2 + (j % 3);
+    if (fp < 1) { const x = tx + (1 - fp) * 18, y = -8 + (gy + 8) * fp; ctx.fillStyle = '#ff8a2a'; ctx.fillRect(Math.round(x + s), Math.round(y - s), 1, 1); ctx.fillRect(Math.round(x + s + 2), Math.round(y - 2 * s), 1, 1); ctx.fillStyle = '#4a3a36'; ctx.fillRect(Math.round(x), Math.round(y), s, s); ctx.fillStyle = '#ff9a40'; ctx.fillRect(Math.round(x), Math.round(y), 1, 1); }
+    else { const e = ph - ft; if (e < 0.5) { const a = 1 - e / 0.5; ctx.fillStyle = `rgba(130,116,108,${0.7 * a})`; ctx.fillRect(Math.round(tx - 2 - e * 9), Math.round(gy - 1 - e * 6), Math.round(5 + e * 18), Math.round(2 + e * 3)); ctx.fillStyle = '#ffb040'; for (let q = 0; q < 4; q++) ctx.fillRect(Math.round(tx + (q - 1.5) * e * 16), Math.round(gy - Math.sin(e * 6.3) * (5 + q * 2)), 1, 1); } }
+  }
+  const na = Math.round(20 + 110 * sm(1.5, 7));                                     // 火山灰
+  for (let i = 0; i < na; i++) {
+    const x = (i * 37 + T * (4 + i % 3 * 2)) % W, y = (T * (12 + (i % 7) * 3) + i * 13) % H;
+    ctx.fillStyle = i % 5 ? 'rgba(150,140,130,.8)' : 'rgba(80,72,68,.9)'; ctx.fillRect(Math.round(x), Math.round(y), 1, 1);
+  }
+  const pile = sm(5, 10); if (pile > 0) { ctx.fillStyle = `rgba(110,102,96,${0.8 * pile})`; ctx.fillRect(0, Math.round(H - 6 * pile), W, 6); }
+  ctx.restore();
+}
+
+// ---- エクスポート ----
+const FMT = 'pixel-village-clock';
+function download(data) {
+  const j = jst(Date.now()), p = n => (n < 10 ? '0' : '') + n;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+  a.download = `pixel-village-${j.y}${p(j.mo)}${p(j.d)}-${p(j.h)}${p(j.mi)}.json`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+$('sExp').addEventListener('click', async () => {
+  if (PREVIEW) return sMsg('プレビュー表示中は使えません');
+  const rec = Object.assign({}, loadRec() || REC);
+  const data = { app: FMT, v: 1, at: Date.now(), rec: { count: rec.count, streak: rec.streak, stage: rec.stage, best: rec.best, lastDate: rec.lastDate, lastTs: rec.lastTs },
+    build: JSON.parse(JSON.stringify(BUILD, (k, v) => (k === '_c' || k === '_v') ? undefined : v)) };
+  await cinema('exp', 2600);
+  download(data);
+  document.body.classList.remove('cine'); show('smodal'); sMsg('エクスポートしました');
+  setTimeout(() => document.body.classList.remove('nopanel'), 700);   // 時計は背景が戻ってから静かに現れる
+});
+
+// ---- インポート（現在のデータを上書き）----
+function parseImport(txt) {
+  let o; try { o = JSON.parse(txt); } catch (e) { return null; }
+  if (!o || o.app !== FMT || !o.rec || typeof o.rec !== 'object') return null;
+  const r = o.rec, ni = (v, hi) => Math.max(0, Math.min(hi, v | 0));
+  const rec = { count: ni(r.count, 1e6), streak: ni(r.streak, 1e5), stage: ni(r.stage, MAXSTAGE), best: ni(r.best, 1e5),
+    lastDate: typeof r.lastDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.lastDate) ? r.lastDate : null, lastTs: Number.isFinite(+r.lastTs) && r.lastTs !== null ? +r.lastTs : null };
+  rec.best = Math.max(rec.best, rec.streak);
+  return { rec, build: sanitizeBuild(o.build) };
+}
+$('sImp').addEventListener('click', () => { if (PREVIEW) sMsg('プレビュー表示中は使えません'); else $('iFile').click(); });
+$('iFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  let txt; try { txt = await f.text(); } catch (err) { return sMsg('ファイルを読み込めませんでした'); }
+  const d = parseImport(txt); if (!d) return sMsg('このファイルは読み込めません（形式が違います）');
+  const ok = await askConfirm(`現在のデータは上書きされます。\n（連続ログイン ${d.rec.streak}日 / Lv.${d.rec.stage + 1}）\nインポートしますか？`, 'インポート', 'キャンセル');
+  if (!ok) return;
+  SUSPEND = true;
+  ['menu', 'smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
+  document.body.classList.add('cine', 'nopanel'); await sleep(450);
+  FX.swapped = false; FX.swap = () => { BUILD = d.build; buildItems(d.rec.stage); };
+  FX.k = 'imp'; FX.dur = 4500; FX.t0 = performance.now(); await sleep(4900); FX.k = null;
+  try { sessionStorage.setItem('pvc.snap', main.toDataURL('image/png')); } catch (err) {}   // 最後の画面を再読み込み後に引き継ぐ
+  try {
+    localStorage.setItem(KEY, JSON.stringify(d.rec)); localStorage.setItem(BKEY, JSON.stringify(d.build));
+    sessionStorage.setItem(KEY + '.session', JSON.stringify({ info: { first: false, prevTs: d.rec.lastTs, sameDay: true, broken: false, dropped: false, up: false, nowTs: Date.now() }, rec: d.rec }));
+    sessionStorage.setItem('pvc.boot', 'imp');
+  } catch (err) {}
+  location.reload();
+});
+
+// ---- リセット（噴火演出つき）----
+$('sRst').addEventListener('click', async () => {
+  if (PREVIEW) return sMsg('プレビュー表示中は使えません');
+  const n = REC.streak, b = bonusFor(n);
+  if (!await askConfirm(`保存されているデータをすべて消去し、最初からやり直します。\n連続ログイン ${n}日 → ` + (b ? `ボーナス ${b}ピクセル` : 'ボーナスなし（8日以上で獲得）'), '次へ', 'キャンセル')) return;
+  if (!await askConfirm('本当にリセットしますか？\nこの操作は取り消せません。', 'リセットする', 'キャンセル')) return;
+  SUSPEND = true;
+  ['menu', 'smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
+  document.body.classList.add('cine', 'nopanel');          // 時計も消して背景だけを映す
+  CAT.on = true; CAT.t = 0; CAT.t0 = performance.now();
+  setTimeout(() => {
+    try {
+      Object.keys(localStorage).filter(k => k.indexOf('pixelVillageClock') === 0).forEach(k => localStorage.removeItem(k));
+      localStorage.setItem(BKEY, JSON.stringify({ earned: b, used: 0, prog: 0, seq: 1, structs: [] }));
+      sessionStorage.removeItem(KEY + '.session'); sessionStorage.setItem('pvc.boot', '1'); sessionStorage.setItem('pvc.bonus', String(b));
+    } catch (err) {}
+    location.reload();
+  }, (CAT_PRE + 1.5) * 1000);
+});
+try {                                                    // リセット後の起動: ボーナスを知らせる
+  const bn = +sessionStorage.getItem('pvc.bonus'); sessionStorage.removeItem('pvc.bonus');
+  if (bn > 0) setTimeout(() => onGain(bn, `連続ログインボーナス +${bn} ピクセル！`), 2200);
+} catch (e) {}
+
 /* ---------- 起動 ---------- */
 resizeWorld();
 buildItems(STAGE);
-addEventListener('resize', () => { resizeWorld(); bgKey = ''; });
+addEventListener('resize', scheduleResize);
+addEventListener('orientationchange', () => { setTimeout(scheduleResize, 250); setTimeout(scheduleResize, 800); });
+if (window.visualViewport) visualViewport.addEventListener('resize', scheduleResize);
 if (!PREVIEW) openModal();
 requestAnimationFrame(ms => { T0 = ms; loop(ms); });
 

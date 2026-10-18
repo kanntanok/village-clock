@@ -239,6 +239,8 @@ b.className='on';document.body.classList.add('nopanel');setTimeout(function(){do
   <div class="card mcard">
     <h2 id="setT"><canvas class="mi" data-mi="gear"></canvas>設定</h2>
     <div class="srow"><button type="button" class="pbtn wide" id="locBtn"><canvas class="mi" data-mi="pin"></canvas><span id="locTxt">現在地の天気と同期</span></button></div>
+    <div class="srow"><button type="button" class="pbtn wide" id="sSfx"><canvas class="mi" data-mi="spk"></canvas><span id="sSfxT">効果音: オン</span></button>
+      <label style="display:flex;align-items:center;gap:8px;margin:2px 4px 6px;font-size:11px;color:#c6d1f7">音量<input type="range" id="sVol" min="0" max="100" step="5" style="flex:1"></label></div>
     <div class="srow"><button type="button" class="pbtn wide" id="sExp"><canvas class="mi" data-mi="out"></canvas>エクスポート</button>
       <small>村のデータをファイルに書き出します（位置情報は含みません）</small></div>
     <div class="srow"><button type="button" class="pbtn wide" id="sImp"><canvas class="mi" data-mi="inn"></canvas>インポート</button>
@@ -488,13 +490,126 @@ function fillModal() {
   $('msg').hidden = !msg;
   $('note').hidden = persistOK || PREVIEW;
 }
-function openModal() {
+/* =====================================================================
+   効果音: Web Audio による合成音（外部ファイルなし）。
+   サイン波 + 控えめな倍音 + ごく小さな音程の揺れ・木のような微かなクリックで、デジタルな澄んだ音に温もりを足す。
+   ペンタトニック(D)で揃えているので、どの音が重なっても濁らない。
+   ===================================================================== */
+const SFX = (() => {
+  let ac = null, out = null, verb = null, noise = null, gate = null, S = { on: true, vol: 0.6 }, lastDraw = 0, rumbleEnd = 0;
+  try { const o = JSON.parse(localStorage.getItem(KEY + '.sfx') || 'null'); if (o) S = { on: o.on !== false, vol: clamp(+o.vol, 0, 1) }; } catch (e) {}
+  const N = { D4: 293.66, F4: 369.99, A4: 440, B4: 493.88, D5: 587.33, E5: 659.25, F5: 739.99, A5: 880, B5: 987.77, D6: 1174.66, F6: 1479.98, A6: 1760 };
+  function init() {
+    if (ac) return true;
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return false;
+    try { ac = new AC(); } catch (e) { return false; }
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -20; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+    out = ac.createGain(); out.gain.value = S.vol * 0.5; out.connect(comp); comp.connect(ac.destination);
+    const len = Math.floor(ac.sampleRate * 1.3), ir = ac.createBuffer(2, len, ac.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); let lp = 0; for (let i = 0; i < len; i++) { lp += ((Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6) - lp) * 0.3; d[i] = lp; } }
+    verb = ac.createConvolver(); verb.buffer = ir; const vg = ac.createGain(); vg.gain.value = 0.5; verb.connect(vg); vg.connect(out);
+    noise = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const nd = noise.getChannelData(0); let b = 0;
+    for (let i = 0; i < nd.length; i++) { b = (b + 0.03 * (Math.random() * 2 - 1)) / 1.03; nd[i] = b * 3.2; }
+    return true;
+  }
+  function ok() { if (!S.on || !init()) return false; if (ac.state === 'suspended') ac.resume(); return true; }
+  // 1音: 立ち上がりでごく僅かに音程が落ち着く（生き物のような揺らぎ）+ 1オクターブ上の三角波を薄く重ねる
+  function tone(f, at, dur, o = {}) {
+    const t = ac.currentTime + at, g = ac.createGain(), lp = ac.createBiquadFilter(), pk = o.g == null ? 0.15 : o.g, a = o.a || 0.008;
+    lp.type = 'lowpass'; lp.frequency.value = o.lp || 3400; lp.Q.value = 0.5;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(pk, t + a);
+    if (o.sus) { g.gain.setValueAtTime(pk, t + dur - 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); } else g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const mk = (type, mul, lv, det) => {
+      const os = ac.createOscillator(), vg = ac.createGain(); os.type = type; vg.gain.value = lv; os.detune.value = det;
+      os.frequency.setValueAtTime(f * mul * (o.from || 1.012), t); os.frequency.exponentialRampToValueAtTime(f * mul, t + Math.min(0.05, dur * 0.4));
+      if (o.to) os.frequency.exponentialRampToValueAtTime(Math.max(20, f * mul * o.to), t + dur);
+      os.connect(vg); vg.connect(lp); os.start(t); os.stop(t + dur + 0.05);
+    };
+    mk(o.type || 'sine', 1, 1, 0); if (!o.pure) mk('triangle', 2, 0.2, 4);
+    lp.connect(g); g.connect(out);
+    if (o.send) { const s = ac.createGain(); s.gain.value = o.send; g.connect(s); s.connect(verb); }
+  }
+  function tick(at, g = 0.05, fq = 1800, dur = 0.03) {       // 木の実を叩くような微かなクリック
+    const t = ac.currentTime + at, s = ac.createBufferSource(), bp = ac.createBiquadFilter(), eg = ac.createGain();
+    s.buffer = noise; bp.type = 'bandpass'; bp.frequency.value = fq; bp.Q.value = 1.2;
+    eg.gain.setValueAtTime(g, t); eg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(bp); bp.connect(eg); eg.connect(out); s.start(t, Math.random()); s.stop(t + dur + 0.02);
+  }
+  function hit(at, dur, g, fq) {                              // 低域のノイズ（衝撃・岩）
+    const t = ac.currentTime + at, s = ac.createBufferSource(), lp = ac.createBiquadFilter(), eg = ac.createGain();
+    s.buffer = noise; lp.type = 'lowpass'; lp.frequency.value = fq; eg.gain.setValueAtTime(g, t); eg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(lp); lp.connect(eg); eg.connect(out); s.start(t, Math.random()); s.stop(t + dur + 0.02);
+  }
+  const P = {
+    tap() { tone(N.D5, 0, 0.09, { g: 0.1, from: 1.02 }); tick(0, 0.04); },
+    tick() { tone(N.A5, 0, 0.05, { g: 0.04 }); tick(0, 0.025, 2400); },
+    open() { tone(N.D5, 0, 0.14, { g: 0.09, send: 0.25 }); tone(N.A5, 0.06, 0.22, { g: 0.08, send: 0.3 }); },
+    close() { tone(N.A5, 0, 0.1, { g: 0.07 }); tone(N.D5, 0.06, 0.2, { g: 0.08, send: 0.25 }); },
+    dockOpen() { [N.A4, N.D5, N.F5, N.A5].forEach((f, i) => tone(f, i * 0.034, 0.16, { g: 0.07, send: 0.22 })); },
+    dockClose() { [N.A5, N.F5, N.D5, N.A4].forEach((f, i) => tone(f, i * 0.028, 0.14, { g: 0.065, send: 0.18 })); },
+    ok() { tone(N.E5, 0, 0.12, { g: 0.09 }); tone(N.A5, 0.07, 0.3, { g: 0.1, send: 0.3 }); },
+    confirm() { [N.D5, N.F5, N.A5].forEach((f, i) => tone(f, i * 0.06, 0.28, { g: 0.09, send: 0.3 })); },
+    cancel() { tone(N.A4, 0, 0.1, { g: 0.09, to: 0.8 }); tick(0, 0.03, 1200); },
+    down() { tone(330, 0, 0.16, { g: 0.1, to: 0.5 }); },
+    place() { tone(150, 0, 0.18, { g: 0.26, to: 0.6, lp: 600, pure: true }); tick(0, 0.08, 900, 0.05); tone(N.D5, 0.06, 0.28, { g: 0.07, send: 0.3 }); },
+    del() { tone(392, 0, 0.22, { g: 0.1, to: 0.5, lp: 1800 }); tick(0.02, 0.04, 1000); },
+    gain() { tone(N.A5, 0, 0.55, { g: 0.11, send: 0.45 }); tone(N.D6, 0.09, 0.75, { g: 0.09, send: 0.5 }); tone(N.F6, 0.2, 0.7, { g: 0.045, send: 0.5 }); },
+    note() { tone(N.E5, 0, 0.22, { g: 0.07, send: 0.3 }); },
+    exp() {                                                   // 上昇する光の粒 → 和音
+      [N.D4, N.F4, N.A4, N.B4, N.D5, N.F5, N.A5, N.B5, N.D6, N.F6, N.A6].forEach((f, k) => tone(f, k * 0.2, 0.32, { g: 0.045 + k * 0.004, send: 0.4 }));
+      tone(146.83, 0, 2.6, { g: 0.05, a: 0.7, lp: 500, pure: true, sus: true });
+      [N.D5, N.F5, N.A5].forEach(f => tone(f, 2.4, 0.9, { g: 0.07, send: 0.5 }));
+    },
+    imp() {                                                   // 暗転(下降) → 静寂の唸り → 読み込みバー(上昇) → 完了の和音
+      [N.A5, N.F5, N.D5, N.B4, N.A4, N.F4].forEach((f, k) => tone(f, k * 0.17, 0.3, { g: 0.06, send: 0.4 }));
+      tone(73.4, 0.9, 3.5, { g: 0.06, a: 0.5, lp: 400, pure: true, sus: true });
+      tone(120, 1.6, 2.9, { g: 0.05, a: 0.5, to: 4.3, lp: 1500, pure: true, sus: true });
+      [N.D5, N.F5, N.A5, N.B5, N.D6, N.F6].forEach((f, k) => tone(f, 1.8 + k * 0.45, 0.25, { g: 0.04, send: 0.4 }));
+      [N.D5, N.F5, N.A5, N.D6].forEach(f => tone(f, 4.55, 1.0, { g: 0.07, send: 0.5 }));
+    },
+    crt() { tone(2600, 0, 0.36, { g: 0.09, to: 0.03, type: 'triangle', lp: 6000, pure: true }); tick(0, 0.05, 3000, 0.12); tone(70, 0.4, 0.3, { g: 0.18, to: 0.5, pure: true, lp: 300 }); }
+  };
+  const call = k => () => { if (ok()) P[k](); };
+  return {
+    get on() { return S.on; }, get vol() { return S.vol; },
+    set(on, vol) { S.on = !!on; S.vol = clamp(vol, 0, 1); if (out) out.gain.value = S.vol * 0.5; try { localStorage.setItem(KEY + '.sfx', JSON.stringify(S)); } catch (e) {} },
+    unlock() { if (S.on && init() && ac.state === 'suspended') ac.resume(); },
+    tap: call('tap'), tick: call('tick'), open: call('open'), close: call('close'), dockOpen: call('dockOpen'), dockClose: call('dockClose'),
+    ok: call('ok'), confirm: call('confirm'), cancel: call('cancel'), down: call('down'), place: call('place'), del: call('del'), gain: call('gain'), note: call('note'), imp: call('imp'),
+    cine(kind) { if (kind === 'exp') { if (ok()) P.exp(); } else this.imp(); },
+    draw(c) { const n = performance.now(); if (n - lastDraw < 45 || !ok()) return; lastDraw = n; const sc = [N.D5, N.E5, N.F5, N.A5, N.B5, N.D6]; tone(c < 0 ? N.A4 : sc[c % 6], 0, 0.07, { g: 0.045 }); },
+    reset() {                                                 // 地鳴り → 噴火の轟音 → 岩の落下 → (CRT)
+      if (!ok()) return; const t = ac.currentTime, s = ac.createBufferSource(), lp = ac.createBiquadFilter();
+      s.buffer = noise; s.loop = true; lp.type = 'lowpass'; lp.frequency.value = 110; gate = ac.createGain();
+      gate.gain.setValueAtTime(0.0001, t); gate.gain.linearRampToValueAtTime(0.26, t + 3); gate.gain.linearRampToValueAtTime(0.5, t + 3.2); gate.gain.linearRampToValueAtTime(0.3, t + 9); gate.gain.linearRampToValueAtTime(0.0001, t + 15.5);
+      s.connect(lp); lp.connect(gate); gate.connect(out); s.start(t); s.stop(t + 15.6);
+      tone(58, 3.05, 1.1, { g: 0.45, to: 0.55, pure: true, lp: 300 }); hit(3.05, 0.9, 0.4, 700);
+      const r = ac.createBufferSource(), bp = ac.createBiquadFilter(), rg = ac.createGain();
+      r.buffer = noise; r.loop = true; bp.type = 'bandpass'; bp.frequency.value = 650; bp.Q.value = 0.4;
+      rg.gain.setValueAtTime(0.0001, t + 3); rg.gain.linearRampToValueAtTime(0.09, t + 5); rg.gain.linearRampToValueAtTime(0.0001, t + 15);
+      r.connect(bp); bp.connect(rg); rg.connect(out); r.start(t); r.stop(t + 15.2);
+      for (let k = 0; k < 22; k++) { const at = 4 + k * 0.5 + Math.random() * 0.25; tone(80 + Math.random() * 50, at, 0.18, { g: 0.16, to: 0.55, pure: true, lp: 500 }); hit(at, 0.12, 0.12, 900); }
+    },
+    crt() { if (gate) { gate.gain.cancelScheduledValues(ac.currentTime); gate.gain.setValueAtTime(gate.gain.value, ac.currentTime); gate.gain.linearRampToValueAtTime(0.0001, ac.currentTime + 0.12); } if (ok()) P.crt(); },
+    click(b) {                                                // ボタンの種類ごとに音を振り分け
+      const id = b.id, m = { recBtn: 0, buildBtn: 0, goBtn: 0, bClose: 0, lClose: 0, bPlace: 0, bDel: 0, pEdit: 0, sSfx: 0, setBtn: 'open', placeBtn: 'open', pList: 'open', sClose: 'close',
+        pDone: 'ok', pvOk: 'ok', cOk: 'ok', pvNo: 'cancel', cNo: 'cancel', pUn: 'down', bCreate: 'confirm', bUndo: 'tick', bRedo: 'tick' };
+      if (id === 'dockT') return $('dock').classList.contains('open') ? this.dockClose() : this.dockOpen();
+      if (id in m) { if (m[id]) this[m[id]](); return; }
+      if (b.matches('[data-tool],[data-c],[data-dx]')) return this.tick();
+      this.tap();
+    }
+  };
+})();
+document.addEventListener('click', e => { SFX.unlock(); const b = e.target.closest('button,[data-tool],[data-c],[data-dx]'); if (b) SFX.click(b); }, true);
+document.addEventListener('keydown', () => SFX.unlock(), true);
+function openModal() { SFX.open();
   fillModal();
   $('modal').classList.remove('hide');
   clearTimeout(modalTimer);
   modalTimer = setTimeout(closeModal, 14000);
 }
-function closeModal() { $('modal').classList.add('hide'); clearTimeout(modalTimer); }
+function closeModal() { SFX.close(); $('modal').classList.add('hide'); clearTimeout(modalTimer); }
 $('goBtn').addEventListener('click', closeModal);
 $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
 
@@ -1151,6 +1266,7 @@ function render(ms) {
   lg.setTransform(1, 0, 0, 1, 0, OY); lg.globalAlpha = 1;
   lg.drawImage(bgc, 0, 0);
   river();
+  drawLava();
   drawItems();
   reeds();
   if (STAGE >= 5) festival();
@@ -1249,7 +1365,7 @@ function setTheme(acc) {
 const ICOL = { K: '#14101f', W: '#ffffff', w: '#d9def2', g: '#9aa3c9', G: '#4b5280', Y: '#ffd34a', z: '#fff3a8', y: '#e0a82a',
   O: '#ff8a3c', P: '#ff9ec4', p: '#d6679a', B: '#3a7bd5', b: '#244f9a', L: '#bfe9ff', R: '#e8453a', r: '#9a1f1f',
   N: '#d9a867', n: '#a0703c', D: '#2b2b36', Q: '#8798f0', q: '#2e3b86', T: '#2fb7a8', t: '#1b7f76', U: '#8ef0e0' };
-const ICONS = {"triD": ["................", "................", "................", "................", "..KKKKKKKKKKKK..", "..KWWWWWWWWwgK..", "...KWWWWWWwgK...", "....KWWWWwgK....", ".....KWWwgK.....", "......KWgK......", ".......KK.......", "................", "................", "................", "................", "................"], "triL": ["................", "................", "..........KK....", ".........KWK....", "........KWWK....", ".......KWWWK....", "......KWWWWK....", ".....KWWWWWK....", ".....KgwWWWK....", "......KgwWWK....", ".......KgwWK....", "........KgwK....", ".........KgK....", "..........KK....", "................", "................"], "pencil": ["...........KPPK.", "..........KPPPPK", ".........KwGPPpp", "........KzzwGppp", ".......KzzYYgGpK", "......KzzYYyygK.", ".....KzzYYyyOK..", "....KzzYYyyOK...", "...KzzYYyyOK....", "..KzzYYyyOK.....", ".KNzYYyyOK......", ".KNNYyyOK.......", ".KNNnyOK........", ".KNnnnK.........", "KDKKKK..........", ".K.............."], "eraser": ["................", "................", "................", "................", "...KKKKKKKKKK...", "..KwwgPPPPPPPK..", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", "..KgggpppppppK..", "...KKKKKKKKKK...", "................", "................", "................"], "dropper": [".KKKK...........", "KRRrrK..........", "KRRRrrK.........", "KWWRRrKK........", "KRRRRRggK.......", ".KRRRwwgK.......", "..KKWWLLgK......", "...KWWLLbgK.....", "....KKWBBbgK....", "......KWBBbgK...", ".......KWBBbK...", "........KWBwK...", ".........KKK.K..", "............KBK.", "............KBK.", "............KbK."], "arrowR": ["............", "......K.....", ".....KWK....", ".....KWWK...", ".KKKKKWWWK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KKKKKWWWK..", ".....KWWK...", ".....KWK....", "......K.....", "............"], "arrowL": ["............", ".....K......", "....KWK.....", "...KWWK.....", "..KWWWKKKKK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", "..KWWWKKKKK.", "...KWWK.....", "....KWK.....", ".....K......", "............"], "arrowD": [".....KK.....", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", "..KWWWWWWK..", "...KWWWWK...", "....KWWK....", ".....KK.....", "............"], "arrowU": ["............", ".....KK.....", "....KWWK....", "...KWWWWK...", "..KWWWWWWK..", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", ".....KK....."], "undo": ["............", "...K........", "..KWK.......", ".KWWKKKKKK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KWWKKKKWWK.", "..KWKKKKWWK.", "...KWWWWWWK.", "...KWWWWWWK.", "....KKKKKK..", "............"], "redo": ["............", "........K...", ".......KWK..", "..KKKKKKWWK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", ".KWWKKKKWWK.", ".KWWKKKKWK..", ".KWWWWWWK...", ".KWWWWWWK...", "..KKKKKK....", "............"], "close": ["................", "................", "...KK......KK...", "..KWgK....KwWK..", "..KwWgK..KwWgK..", "...KwWgKKwWgK...", "....KwWgwWgK....", ".....KwWWgK.....", ".....KwWWgK.....", "....KwWgwWgK....", "...KwWgKKwWgK...", "..KwWgK..KwWgK..", "..KWgK....KwWK..", "...KK......KK...", "................", "................"], "plus": ["............", ".....KK.....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", ".....KK.....", "............"], "trash": ["......KKKK......", ".....KgwwgK.....", "..KKKKggggKKKK..", ".KWWWWWWWWWWWWK.", ".KggggggggggggK.", "..KWwwwwwwwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwwwwwwwgK..", "...KggggggggK...", "....KKKKKKKK...."], "list": ["...KKKKKKKKKK...", "..KWWWWWWWWWWK..", ".KQWWWWWWWWWWqK.", ".KQLWWWWWWWWLqK.", ".KQLWRRWGGGWLqK.", ".KQLWRRWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWYYWGGGWLqK.", ".KQLWYYWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWBBWGGGWLqK.", ".KQLWBBWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQggggggggggqK.", "..KqqqqqqqqqqK..", "...KKKKKKKKKK..."], "pin": ["................", "......KKKK......", ".....KRRrrK.....", "....KRRRrrrK....", "...KRRRWwrrrK...", "...KRRWWwwrrK...", "...KRRWWwwrrK...", "...KRRRWwrrrK...", "...KRRRRrrrrK...", "....KRRRrrrK....", ".....KRRrrK.....", ".....KRRrrK.....", "......KRrK......", "......KRrK......", ".......KK.......", "................"], "user": ["................", "......KKKK......", ".....KWWWWK.....", "....KWWWWWWK....", "....KWWWWWwK....", "....KWWWWwwK....", "....KWWWwwwK....", "....KWWwwwwK....", ".....KwwwwK.....", ".....KKKKKK.....", "...KKWWWWwwKK...", "..KWWWWWWwwwwK..", ".KWWWWWWWwwwwwK.", ".KWWWWWWWwwwwwK.", ".KwwwwwwggggggK.", "..KKKKKKKKKKKK.."], "gear": ["................", "......KKKK......", "...KKKWWWWKKK...", "..KWWKWWWwKwwK..", "..KWWWWWwwwwwK..", "..KKWWWwwwwwKK..", ".KWWWWKKKKwwggK.", ".KWWWwK..KwgggK.", ".KWWwwK..KggggK.", ".KWwwwKKKKggggK.", "..KKwwwwggggKK..", "..KwwwwggggggK..", "..KwwKggggKggK..", "...KKKggggKKK...", "......KKKK......", "................"], "menu": ["................", "................", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "................", "................"], "out": [".......KK.......", "......KWgK......", ".....KWWWgK.....", "....KWWWWWgK....", "...KWWWWWWWgK...", "..KWWWWWWWWWgK..", "...KKKWWWgKKK...", ".....KWWWgK.....", ".....KWWWgK.....", ".KK..KWWWgK..KK.", "KWWK.KWWWgK.KqqK", "KQQK..KKKK..KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."], "inn": ["......KKKK......", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", "...KKKWWWgKKK...", "..KWWWWWWWWWgK..", "...KWWWWWWWgK...", "....KWWWWWgK....", ".KK..KWWWgK..KK.", "KWWK..KWgK..KqqK", "KQQK...KK...KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."]};
+const ICONS = {"triD": ["................", "................", "................", "................", "..KKKKKKKKKKKK..", "..KWWWWWWWWwgK..", "...KWWWWWWwgK...", "....KWWWWwgK....", ".....KWWwgK.....", "......KWgK......", ".......KK.......", "................", "................", "................", "................", "................"], "triL": ["................", "................", "..........KK....", ".........KWK....", "........KWWK....", ".......KWWWK....", "......KWWWWK....", ".....KWWWWWK....", ".....KgwWWWK....", "......KgwWWK....", ".......KgwWK....", "........KgwK....", ".........KgK....", "..........KK....", "................", "................"], "pencil": ["...........KPPK.", "..........KPPPPK", ".........KwGPPpp", "........KzzwGppp", ".......KzzYYgGpK", "......KzzYYyygK.", ".....KzzYYyyOK..", "....KzzYYyyOK...", "...KzzYYyyOK....", "..KzzYYyyOK.....", ".KNzYYyyOK......", ".KNNYyyOK.......", ".KNNnyOK........", ".KNnnnK.........", "KDKKKK..........", ".K.............."], "eraser": ["................", "................", "................", "................", "...KKKKKKKKKK...", "..KwwgPPPPPPPK..", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", ".KwwwgPPPPPPPpK.", "..KgggpppppppK..", "...KKKKKKKKKK...", "................", "................", "................"], "dropper": [".KKKK...........", "KRRrrK..........", "KRRRrrK.........", "KWWRRrKK........", "KRRRRRggK.......", ".KRRRwwgK.......", "..KKWWLLgK......", "...KWWLLbgK.....", "....KKWBBbgK....", "......KWBBbgK...", ".......KWBBbK...", "........KWBwK...", ".........KKK.K..", "............KBK.", "............KBK.", "............KbK."], "arrowR": ["............", "......K.....", ".....KWK....", ".....KWWK...", ".KKKKKWWWK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KKKKKWWWK..", ".....KWWK...", ".....KWK....", "......K.....", "............"], "arrowL": ["............", ".....K......", "....KWK.....", "...KWWK.....", "..KWWWKKKKK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", "..KWWWKKKKK.", "...KWWK.....", "....KWK.....", ".....K......", "............"], "arrowD": [".....KK.....", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", "..KWWWWWWK..", "...KWWWWK...", "....KWWK....", ".....KK.....", "............"], "arrowU": ["............", ".....KK.....", "....KWWK....", "...KWWWWK...", "..KWWWWWWK..", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", "....KWWK....", "....KWWK....", ".....KK....."], "undo": ["............", "...K........", "..KWK.......", ".KWWKKKKKK..", "KWWWWWWWWWK.", "KWWWWWWWWWK.", ".KWWKKKKWWK.", "..KWKKKKWWK.", "...KWWWWWWK.", "...KWWWWWWK.", "....KKKKKK..", "............"], "redo": ["............", "........K...", ".......KWK..", "..KKKKKKWWK.", ".KWWWWWWWWWK", ".KWWWWWWWWWK", ".KWWKKKKWWK.", ".KWWKKKKWK..", ".KWWWWWWK...", ".KWWWWWWK...", "..KKKKKK....", "............"], "close": ["................", "................", "...KK......KK...", "..KWgK....KwWK..", "..KwWgK..KwWgK..", "...KwWgKKwWgK...", "....KwWgwWgK....", ".....KwWWgK.....", ".....KwWWgK.....", "....KwWgwWgK....", "...KwWgKKwWgK...", "..KwWgK..KwWgK..", "..KWgK....KwWK..", "...KK......KK...", "................", "................"], "plus": ["............", ".....KK.....", "....KWWK....", "....KWWK....", "..KKKWWKKK..", ".KWWWWWWWWK.", ".KWWWWWWWWK.", "..KKKWWKKK..", "....KWWK....", "....KWWK....", ".....KK.....", "............"], "trash": ["......KKKK......", ".....KgwwgK.....", "..KKKKggggKKKK..", ".KWWWWWWWWWWWWK.", ".KggggggggggggK.", "..KWwwwwwwwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwGwwGwwgK..", "..KWwwwwwwwwgK..", "...KggggggggK...", "....KKKKKKKK...."], "list": ["...KKKKKKKKKK...", "..KWWWWWWWWWWK..", ".KQWWWWWWWWWWqK.", ".KQLWWWWWWWWLqK.", ".KQLWRRWGGGWLqK.", ".KQLWRRWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWYYWGGGWLqK.", ".KQLWYYWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQLWBBWGGGWLqK.", ".KQLWBBWgggWLqK.", ".KQLWWWWWWWWLqK.", ".KQggggggggggqK.", "..KqqqqqqqqqqK..", "...KKKKKKKKKK..."], "pin": ["................", "......KKKK......", ".....KRRrrK.....", "....KRRRrrrK....", "...KRRRWwrrrK...", "...KRRWWwwrrK...", "...KRRWWwwrrK...", "...KRRRWwrrrK...", "...KRRRRrrrrK...", "....KRRRrrrK....", ".....KRRrrK.....", ".....KRRrrK.....", "......KRrK......", "......KRrK......", ".......KK.......", "................"], "user": ["................", "......KKKK......", ".....KWWWWK.....", "....KWWWWWWK....", "....KWWWWWwK....", "....KWWWWwwK....", "....KWWWwwwK....", "....KWWwwwwK....", ".....KwwwwK.....", ".....KKKKKK.....", "...KKWWWWwwKK...", "..KWWWWWWwwwwK..", ".KWWWWWWWwwwwwK.", ".KWWWWWWWwwwwwK.", ".KwwwwwwggggggK.", "..KKKKKKKKKKKK.."], "gear": ["................", "......KKKK......", "...KKKWWWWKKK...", "..KWWKWWWwKwwK..", "..KWWWWWwwwwwK..", "..KKWWWwwwwwKK..", ".KWWWWKKKKwwggK.", ".KWWWwK..KwgggK.", ".KWWwwK..KggggK.", ".KWwwwKKKKggggK.", "..KKwwwwggggKK..", "..KwwwwggggggK..", "..KwwKggggKggK..", "...KKKggggKKK...", "......KKKK......", "................"], "menu": ["................", "................", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "..KKKKKKKKKKKK..", ".KwWWWWWWWWWWwK.", ".KggggggggggggK.", "..KKKKKKKKKKKK..", "................", "................"], "out": [".......KK.......", "......KWgK......", ".....KWWWgK.....", "....KWWWWWgK....", "...KWWWWWWWgK...", "..KWWWWWWWWWgK..", "...KKKWWWgKKK...", ".....KWWWgK.....", ".....KWWWgK.....", ".KK..KWWWgK..KK.", "KWWK.KWWWgK.KqqK", "KQQK..KKKK..KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."], "inn": ["......KKKK......", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", ".....KWWWgK.....", "...KKKWWWgKKK...", "..KWWWWWWWWWgK..", "...KWWWWWWWgK...", "....KWWWWWgK....", ".KK..KWWWgK..KK.", "KWWK..KWgK..KqqK", "KQQK...KK...KqqK", "KQQKKKKKKKKKKqqK", "KWWWWWWWWWWWWWWK", "KqqqqqqqqqqqqqqK", ".KKKKKKKKKKKKKK."], "spk": ["................", "................", "................", "......K.........", ".....KWK........", "..KKKKWWK....W..", "..KWWKWWWK....W.", "..KWWKWWWK..W..W", "..KWWKWWWK..W..W", "..KWWKWWWK....W.", "..KKKKWWK....W..", ".....KWK........", "......K.........", "................", "................", "................"]};
 function paintTo(cv, key) {
   const m = ICONS[key]; if (!m) return;
   const n = m.length, pd = n === 16 ? 1 : 0;           // 16マスの絵は周囲に1マスの余白を足して枠に触れないようにする
@@ -1343,7 +1459,7 @@ function refreshProg() {
   $('bProg').textContent = '次のピクセルまで ' + fmtMs(EARN_MS - BUILD.prog);
 }
 let gainT = null;
-function onGain(n, txt) {
+function onGain(n, txt) { SFX.gain();
   $('gain').textContent = txt || `+${n} ピクセル獲得！`;
   $('gain').classList.add('show');
   clearTimeout(gainT); gainT = setTimeout(() => $('gain').classList.remove('show'), 4000);
@@ -1436,7 +1552,7 @@ function renderBuild() {
   document.querySelectorAll('[data-tool]').forEach(b => { b.disabled = !has; });
   drawBCanvas(); renderPal(); renderTools(); renderList(); refreshBal(); refreshProg(); updateHist();
 }
-function openBuild(id) {
+function openBuild(id) { SFX.open();
   if (!BUILD.structs.length && BUILD.seq === 1) { curId = newStruct().id; saveBuild(); }   // 初回だけ空の構造物を用意
   if (id && getS(id)) curId = id;
   if (!getS(curId)) curId = BUILD.structs[0] ? BUILD.structs[0].id : null;
@@ -1445,7 +1561,7 @@ function openBuild(id) {
   $('bmodal').querySelector('.bcard').scrollTop = 0;
   $('bmodal').classList.remove('hide');
 }
-function closeBuild() {
+function closeBuild() { SFX.close();
   $('bmodal').classList.add('hide');
   HIST.clear(); stroke = null; bDown = false;
   saveBuild();
@@ -1470,6 +1586,7 @@ async function deleteStruct(id) {
   const st = getS(id); if (!st) return;
   const ok = await askConfirm(`「${st.name}」を削除しますか？\n使ったピクセルは戻りません。`);
   if (!ok || !getS(id)) return;
+  SFX.del();
   BUILD.structs = BUILD.structs.filter(x => x.id !== id);
   HIST.delete(id);
   if (PL.sel === id) PL.sel = null;
@@ -1484,7 +1601,7 @@ function cellsBetween(a, b) {
   for (let i = 0; i <= n; i++) out.push(Math.round(y0 + (y1 - y0) * i / n) * GW + Math.round(x0 + (x1 - x0) * i / n));
   return out;
 }
-function applyCell(i) {
+function applyCell(i) { if (tool === 'pick') SFX.tick(); else SFX.draw(tool === 'eraser' ? -1 : penColor);
   const st = getS(curId); if (!st) return;
   const v = cellOf(st, i);
   if (tool === 'pick') { if (v) { penColor = v; tool = 'pen'; renderPal(); renderTools(); } return; }
@@ -1569,7 +1686,7 @@ function placeStruct(id) {
   const st = getS(id); if (!st) return;
   if (!pixCount(st)) { bmsg('まだ何も描かれていません'); return; }
   if (!st.placed) { const d = defaultPos(); st.placed = true; st.x = d.x; st.y = d.y; }
-  PL.touched.add(id); saveBuild(); rebuildItems(); enterPlace(id);
+  SFX.place(); PL.touched.add(id); saveBuild(); rebuildItems(); enterPlace(id);
 }
 function applyPlaceScale() {
   const sg = $('pstage'), sc = Math.max(4, Math.floor(sg.clientWidth / W));
@@ -1689,7 +1806,7 @@ main.addEventListener('pointermove', e => {
   else if (PL.pan) { const sg = $('pstage'); sg.scrollLeft = PL.pan.l - (e.clientX - PL.pan.x); sg.scrollTop = PL.pan.t - (e.clientY - PL.pan.y); }
 });
 const endDrag = () => {
-  if (PL.drag) { PL.drag = null; PL.last = null; saveBuild(); }
+  if (PL.drag) { SFX.tap(); PL.drag = null; PL.last = null; saveBuild(); }
   PL.pan = null;
   if (PL.active) main.style.cursor = 'grab';
 };
@@ -1936,7 +2053,7 @@ function applyData(d) {
   LOC.at = Date.now(); _bj = null;
 }
 let toastT = null;
-function toast(t) { $('gain').textContent = t; $('gain').classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => $('gain').classList.remove('show'), 3500); }
+function toast(t) { SFX.note(); $('gain').textContent = t; $('gain').classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => $('gain').classList.remove('show'), 3500); }
 async function syncLoc(interactive) {
   try { const p = await getPos(); LOC.lat = r1(p.coords.latitude); LOC.lon = r1(p.coords.longitude); }
   catch (e) { if (interactive) { toast('位置情報を取得できませんでした'); return false; } if (LOC.lat == null) return false; }
@@ -1978,10 +2095,14 @@ const sMsg = t => { $('sMsg').textContent = t || ''; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const bonusFor = n => n >= 8 ? Math.min(10, Math.floor(n / 4)) : 0;   // 8日以上で獲得 / 4日ごとに+1 / 最大10ピクセル(約2.5時間分)
 function refreshSet() {
+  $('sSfxT').textContent = '効果音: ' + (SFX.on ? 'オン' : 'オフ'); $('sSfx').style.opacity = SFX.on ? 1 : 0.6; $('sVol').value = Math.round(SFX.vol * 100);
   const n = REC.streak, b = bonusFor(n);
   $('sBonus').textContent = `全データを消去して最初から。連続ログイン ${n}日 → ` + (b ? `ボーナス ${b}ピクセル` : 'ボーナスなし（8日以上で獲得）');
   sMsg('');
 }
+$('sSfx').addEventListener('click', () => { SFX.set(!SFX.on, SFX.vol || 0.6); $('sSfxT').textContent = '効果音: ' + (SFX.on ? 'オン' : 'オフ'); $('sSfx').style.opacity = SFX.on ? 1 : 0.6; if (SFX.on) SFX.ok(); });
+$('sVol').addEventListener('input', e => { SFX.set(+e.target.value > 0 || SFX.on, +e.target.value / 100); });
+$('sVol').addEventListener('change', () => SFX.tap());
 $('sClose').addEventListener('click', () => hide('smodal'));
 $('smodal').addEventListener('click', e => { if (e.target === $('smodal')) hide('smodal'); });
 addEventListener('keydown', e => { if (e.key === 'Escape') { hide('smodal'); } });
@@ -1993,7 +2114,7 @@ const CAT_Q = 2.5, CAT_PRE = 12.5, CAT_K = (10.2 + CAT_Q) / CAT_PRE;   // 地震
 async function cinema(kind, dur) {
   ['smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
   document.body.classList.add('cine', 'nopanel'); await sleep(450);
-  FX.k = kind; FX.dur = dur; FX.t0 = performance.now(); await sleep(dur); FX.k = null;
+  FX.k = kind; FX.dur = dur; FX.t0 = performance.now(); SFX.cine(kind); await sleep(dur); FX.k = null;
 }
 function drawItems() {
   for (let i = 0; i < items.length; i++) {
@@ -2059,7 +2180,7 @@ const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5; return s - 
 function disc(x, y, r, c) { ctx.fillStyle = c; for (let d = -r; d <= r; d++) { const w = Math.floor(Math.sqrt(r * r - d * d)); ctx.fillRect(Math.round(x - w), Math.round(y + d), w * 2 + 1, 1); } }
 const CRT_T = 10.2, CRT_MS = 520;
 let _tmp = null;
-function crtStart() {                                  // ブラウン管: 画面全体(背景+時計パネル)を同時に潰して消す
+function crtStart() { SFX.crt();                                  // ブラウン管: 画面全体(背景+時計パネル)を同時に潰して消す
   CAT.crt = true; main.style.transform = '';
   _tmp = document.createElement('canvas'); _tmp.width = W; _tmp.height = H; _tmp.getContext('2d').drawImage(main, 0, 0);
   const pn = $('panel'), top0 = pn.getBoundingClientRect().top, cyv = layoutSize().h / 2, t0 = performance.now();
@@ -2076,9 +2197,24 @@ function crtStart() {                                  // ブラウン管: 画�
     if (p < 1) requestAnimationFrame(step); else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); pn.style.opacity = 0; }
   })(t0);
 }
+function drawLava() {   // 溶岩流は富士山の斜面だけを流れる。手前の丘・地面・建物・木には隠れる(丘の稜線より下は描かない)
+  if (!CAT.on || CAT.crt) return;
+  const t = CAT.t, fl = Math.floor(T * 8), lp = clamp((t - 2.2) / 5.3, 0, 1) * 38, cx = 146;
+  const mt = x => Math.round(62 - 2.5 * Math.sin(x * 0.05 + 1) - 2 * Math.sin(x * 0.13 + 0.5));   // buildBg の中景の丘の稜線と同じ式
+  for (let k = 0; k < 3; k++) {
+    const f = [-0.8, 0.05, 0.85][k];
+    for (let d = 0; d < lp; d++) {
+      const hw = Math.round(1 + Math.pow(d, 1.18) * 0.56), x = cx + Math.round(f * hw + Math.sin(d * 0.5 + k * 2) * 1.2), y = 28 + d;
+      lg.fillStyle = d > lp - 3 ? '#fff3a0' : (d + fl) % 6 ? (d < lp * 0.6 ? '#ff7a22' : '#e8501c') : '#ffc040';
+      if (y < mt(x)) lg.fillRect(x, y, 1, 1);
+      if (y < mt(x + 1)) lg.fillRect(x + 1, y, 1, 1);
+    }
+  }
+  if (lp > 37) { lg.fillStyle = `rgba(255,96,30,${0.7 * clamp((t - 6.5) / 1.5, 0, 1)})`; for (let x = cx - 42; x <= cx + 42; x++) lg.fillRect(x, mt(x) - 1, 1, 1); }   // 稜線の裏側に溜まった溶岩の照り返し
+}
 function drawCat() {
   if (!CAT.on || CAT.crt) { if (!CAT.on && main.style.transform) main.style.transform = ''; return; }
-  const t = CAT.t; if (t >= CRT_T) { crtStart(); return; }
+  const t = CAT.t;
   const cx = 146, cy = 28 + OY, sm = (a, b) => clamp((t - a) / (b - a), 0, 1), fl = Math.floor(T * 8);
   const sh = t < 1.5 ? 0.4 + 0.25 * (t + CAT_Q) : 1.7;   // 地震は徐々に強まり、噴火で最大
   main.style.transform = `translate(${(Math.sin(T * 47) * sh).toFixed(1)}px,${(Math.cos(T * 39) * sh).toFixed(1)}px) scale(1.03)`;
@@ -2088,15 +2224,6 @@ function drawCat() {
   ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
   if (t > 1.4 && t < 2.2) { ctx.fillStyle = `rgba(255,240,200,${0.4 * (1 - (t - 1.4) / 0.8)})`; ctx.fillRect(0, 0, W, H); }
   if (t < 1.6) { ctx.fillStyle = `rgba(255,90,30,${0.6 * sm(0, 1.5)})`; ctx.fillRect(cx - 3, cy - 1, 7, 3); }
-  const lp = sm(2.2, 7.5) * 38;                                                     // 斜面を伝う溶岩
-  for (let k = 0; k < 3; k++) {
-    const f = [-0.8, 0.05, 0.85][k];
-    for (let d = 0; d < lp; d++) {
-      const hw = Math.round(1 + Math.pow(d, 1.18) * 0.56), x = cx + Math.round(f * hw + Math.sin(d * 0.5 + k * 2) * 1.2);
-      ctx.fillStyle = d > lp - 3 ? '#fff3a0' : (d + fl) % 6 ? (d < lp * 0.6 ? '#ff7a22' : '#e8501c') : '#ffc040'; ctx.fillRect(x, 28 + d + OY, 2, 1);
-    }
-  }
-  if (lp > 37) { ctx.fillStyle = `rgba(255,96,30,${0.75 * sm(6.5, 8)})`; ctx.fillRect(cx - 42, 66 + OY, 84, 2); }
   const rise = Math.pow(sm(1.5, 7), 0.8), rs = 0.3 + 0.7 * sm(1.5, 7.5);                                                        // 噴煙（もくもくした雲）
   for (let j = 0; j < 64; j++) {
     const u = j / 63; if (t < 1.5 || u > rise) break;                                          // 下から順に立ち上がる
@@ -2164,6 +2291,7 @@ function drawCat() {
   }
   const pile = sm(5, 10); if (pile > 0) { ctx.fillStyle = `rgba(110,102,96,${0.8 * pile})`; ctx.fillRect(0, Math.round(H - 6 * pile), W, 6); }
   ctx.restore();
+  if (t >= CRT_T) crtStart();                        // 噴火の効果を描いたフレームを撮ってから暗転に入る
 }
 
 // ---- エクスポート ----
@@ -2207,7 +2335,7 @@ $('iFile').addEventListener('change', async e => {
   ['smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
   document.body.classList.add('cine', 'nopanel'); await sleep(450);
   FX.swapped = false; FX.swap = () => { BUILD = d.build; buildItems(d.rec.stage); };
-  FX.k = 'imp'; FX.dur = 4500; FX.t0 = performance.now(); await sleep(4900); FX.k = null;
+  FX.k = 'imp'; FX.dur = 4500; FX.t0 = performance.now(); SFX.imp(); await sleep(4900); FX.k = null;
   try { sessionStorage.setItem('pvc.snap', main.toDataURL('image/png')); } catch (err) {}   // 最後の画面を再読み込み後に引き継ぐ
   try {
     localStorage.setItem(KEY, JSON.stringify(d.rec)); localStorage.setItem(BKEY, JSON.stringify(d.build));
@@ -2226,7 +2354,7 @@ $('sRst').addEventListener('click', async () => {
   SUSPEND = true;
   ['smodal', 'modal', 'cmodal', 'bmodal', 'lmodal', 'pvmodal'].forEach(hide);
   document.body.classList.add('cine', 'nopanel');          // 時計も消して背景だけを映す
-  CAT.on = true; CAT.t = 0; CAT.t0 = performance.now();
+  CAT.on = true; CAT.t = 0; CAT.t0 = performance.now(); SFX.reset();
   setTimeout(() => {
     try {
       Object.keys(localStorage).filter(k => k.indexOf('pixelVillageClock') === 0).forEach(k => localStorage.removeItem(k));

@@ -497,7 +497,7 @@ function fillModal() {
    ===================================================================== */
 const MASTER = 1.8;   // 全体の音量係数（既定の音量60%で、操作音が耳で確実に分かる程度）
 const SFX = (() => {
-  let ac = null, out = null, verb = null, noise = null, gate = null, S = { on: true, vol: 0.6 }, lastDraw = 0, rumbleEnd = 0;
+  let ac = null, out = null, dry = null, white = null, noise = null, gate = null, S = { on: true, vol: 0.6 }, lastDraw = 0, rumbleEnd = 0;
   try { const o = JSON.parse(localStorage.getItem(KEY + '.sfx') || 'null'); if (o) S = { on: o.on !== false, vol: isFinite(+o.vol) ? clamp(+o.vol, 0, 1) : 0.6 }; } catch (e) {}
   const N = { D4: 293.66, F4: 369.99, A4: 440, B4: 493.88, D5: 587.33, E5: 659.25, F5: 739.99, A5: 880, B5: 987.77, D6: 1174.66, F6: 1479.98, A6: 1760 };
   function init() {
@@ -506,11 +506,10 @@ const SFX = (() => {
     try { ac = new AC(); } catch (e) { return false; }
     const comp = ac.createDynamicsCompressor(); comp.threshold.value = -16; comp.knee.value = 8; comp.ratio.value = 8; comp.attack.value = 0.003; comp.release.value = 0.18;
     out = ac.createGain(); out.gain.value = S.vol * MASTER; out.connect(comp); comp.connect(ac.destination);
-    const len = Math.floor(ac.sampleRate * 1.3), ir = ac.createBuffer(2, len, ac.sampleRate);
-    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); let lp = 0; for (let i = 0; i < len; i++) { lp += ((Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6) - lp) * 0.3; d[i] = lp; } }
-    verb = ac.createConvolver(); verb.buffer = ir; const vg = ac.createGain(); vg.gain.value = 0.5; verb.connect(vg); vg.connect(out);
+    dry = ac.createGain(); dry.gain.value = S.vol * MASTER; dry.connect(ac.destination);   // コンプレッサーを通さない経路（低音の地響き用）。低音はコンプレッサーを通すと歪んで「ノイズ」のように濁る
     noise = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const nd = noise.getChannelData(0); let b = 0;
     for (let i = 0; i < nd.length; i++) { b = (b + 0.03 * (Math.random() * 2 - 1)) / 1.03; nd[i] = b * 3.2; }
+    white = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate); const wd = white.getChannelData(0); for (let i = 0; i < wd.length; i++) wd[i] = Math.random() * 2 - 1;
     return true;
   }
   function ok() { if (!S.on || !init()) return false; if (ac.state !== 'running') ac.resume().catch(() => {}); return true; }
@@ -541,8 +540,7 @@ const SFX = (() => {
       os.connect(vg); vg.connect(lp); os.start(t); os.stop(t + dur + 0.05);
     };
     mk(o.type || 'sine', 1, 1, 0); if (!o.pure) mk('triangle', 2, 0.2, 4);
-    lp.connect(g); g.connect(out);
-    if (o.send) { const s = ac.createGain(); s.gain.value = o.send; g.connect(s); s.connect(verb); }
+    lp.connect(g); g.connect(o.dry ? dry : out);
   }
   function tick(at, g = 0.05, fq = 1800, dur = 0.03) {       // 木の実を叩くような微かなクリック
     const t = ac.currentTime + at, s = ac.createBufferSource(), bp = ac.createBiquadFilter(), eg = ac.createGain();
@@ -555,64 +553,150 @@ const SFX = (() => {
     s.buffer = noise; lp.type = 'lowpass'; lp.frequency.value = fq; eg.gain.setValueAtTime(g, t); eg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     s.connect(lp); lp.connect(eg); eg.connect(out); s.start(t, Math.random()); s.stop(t + dur + 0.02);
   }
+  // ---- 打楽器風 ----
+  function wtick(at, g, fq, dur, q = 1) {                       // ホワイトノイズの短いクリック（帯域指定）
+    const t = ac.currentTime + at, s = ac.createBufferSource(), bp = ac.createBiquadFilter(), eg = ac.createGain();
+    s.buffer = white; bp.type = 'bandpass'; bp.frequency.value = fq; bp.Q.value = q;
+    eg.gain.setValueAtTime(g, t); eg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(bp); bp.connect(eg); eg.connect(out); s.start(t, Math.random()); s.stop(t + dur + 0.02);
+  }
+  function drum(at, f, dur, g, drop = 0.5, nf = 0) {            // 音程が素早く落ちる胴鳴り(+クリック)。音階を持たない打音
+    const t = ac.currentTime + at, os = ac.createOscillator(), eg = ac.createGain(); os.type = 'sine';
+    os.frequency.setValueAtTime(f, t); os.frequency.exponentialRampToValueAtTime(Math.max(30, f * drop), t + dur);
+    eg.gain.setValueAtTime(g, t); eg.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    os.connect(eg); eg.connect(out); os.start(t); os.stop(t + dur + 0.02);
+    if (nf) wtick(at, g * 0.55, nf, Math.min(0.02, dur * 0.4));
+  }
+  function scratch(at, dur, g, fq, q = 1) {                     // 擦筆音: 帯域ノイズの細かな強弱（鉛筆/消しゴムが紙を擦る）
+    const t = ac.currentTime + at, s = ac.createBufferSource(), bp = ac.createBiquadFilter(), eg = ac.createGain();
+    s.buffer = white; bp.type = 'bandpass'; bp.frequency.value = fq; bp.Q.value = q;
+    eg.gain.setValueAtTime(0.0001, t);
+    for (let i = 0; i < 5; i++) eg.gain.linearRampToValueAtTime(g * (0.35 + Math.random() * 0.65), t + dur * (i + 0.5) / 5);
+    eg.gain.linearRampToValueAtTime(0.0001, t + dur);
+    s.connect(bp); bp.connect(eg); eg.connect(out); s.start(t, Math.random()); s.stop(t + dur + 0.02);
+  }
+  const rv = () => 0.94 + Math.random() * 0.12;
+  function ring(at, f, dur, g) {                              // 減衰する共鳴（プラスチックの筐体の響き）。音程は落とさず一定
+    const t = ac.currentTime + at, os = ac.createOscillator(), eg = ac.createGain(); os.type = 'sine'; os.frequency.value = f;
+    eg.gain.setValueAtTime(g, t); eg.gain.exponentialRampToValueAtTime(0.0001, t + dur); os.connect(eg); eg.connect(out); os.start(t); os.stop(t + dur + 0.02);
+  }
+  function proc(from, to, g, lo, hi, gap) {                    // 処理中のコンピューター: 音階に乗らない無作為な高さの電子音。単発と連打(データ転送)が不規則に混ざる
+    const rf = () => lo * Math.pow(hi / lo, Math.random());                       // 対数一様 = 音階に乗らない
+    let at = from;
+    while (at < to) {
+      if (Math.random() < 0.5) { const d = Math.min(0.025 + Math.random() * 0.075, to - at); if (d < 0.012) break; blip(rf(), at, d, g, Math.random() < 0.6 ? 'triangle' : 'square'); at += d + (0.02 + Math.random() * 0.2) * gap; }
+      else { const n = 3 + Math.floor(Math.random() * 6), st = 0.013 + Math.random() * 0.014; for (let i = 0; i < n && at + i * st < to; i++) blip(rf(), at + i * st, st * 0.8, g * 0.8, 'triangle'); at += n * st + (0.04 + Math.random() * 0.3) * gap; }
+    }
+  }
+  // ---- 無機質な電子音（コンピューターの読み書き）----
+  function blip(f, at, dur, g, type) {                          // 矩形波のデジタルな短音
+    const t = ac.currentTime + at, os = ac.createOscillator(), lp = ac.createBiquadFilter(), eg = ac.createGain();
+    os.type = type || 'square'; os.frequency.value = f; lp.type = 'lowpass'; lp.frequency.value = 2000; lp.Q.value = 0.4;
+    eg.gain.setValueAtTime(0.0001, t); eg.gain.linearRampToValueAtTime(g, t + 0.007); eg.gain.setValueAtTime(g, t + dur * 0.6); eg.gain.linearRampToValueAtTime(0.0001, t + dur);
+    os.connect(lp); lp.connect(eg); eg.connect(out); os.start(t); os.stop(t + dur + 0.02);
+  }
+  const MORSE = { E: '.', X: '-..-', P: '.--.', O: '---', R: '.-.', T: '-', I: '..', N: '-.', G: '--.', M: '--' };
+  function morse(word, from, to, g) {                          // モールス信号(ごく小さな正弦波)。全体が[from,to]に収まるよう速さを決める
+    const seq = word.split('').map(c => MORSE[c]); let units = 0; seq.forEach((s, i) => { s.split('').forEach((e, k) => { units += (e === '-' ? 3 : 1) + (k < s.length - 1 ? 1 : 0); }); if (i < seq.length - 1) units += 3; });
+    const u = Math.min(0.075, (to - from) / units); let at = from;
+    seq.forEach((s, i) => { s.split('').forEach((e, k) => { const d = (e === '-' ? 3 : 1) * u; tone(660, at, d, { g: g, a: 0.004, pure: true, lp: 1200, from: 1 }); at += d + (k < s.length - 1 ? u : 0); }); at += 3 * u; });
+  }
+  const DT = [1320, 1760, 2093, 2637, 3136, 3520, 4186];       // データの囀り（固定の周波数に量子化）
+  function chatter(from, to, step, g) { let k = 0; for (let at = from; at < to; at += step, k++) { blip(DT[(k * 5 + (k >> 2)) % DT.length], at + Math.random() * 0.012, 0.02 + (k % 3) * 0.008, g); if (k % 6 === 5) drum(at + 0.02, 230, 0.018, g * 1.6, 0.6, 1800); } }
+  // ---- 村人の叫び声（遠景。母音「あ」の形に近い2つの共鳴 + ビブラート）----
+  function scream(at, f0, dur, g) {
+    const t = ac.currentTime + at, os = ac.createOscillator(), vib = ac.createOscillator(), vg = ac.createGain(), mix = ac.createGain(), lp = ac.createBiquadFilter(), eg = ac.createGain();
+    os.type = 'sawtooth'; os.frequency.setValueAtTime(f0, t); os.frequency.linearRampToValueAtTime(f0 * 1.45, t + dur * 0.3); os.frequency.linearRampToValueAtTime(f0 * 1.05, t + dur);
+    vib.frequency.value = 5.5 + Math.random() * 2; vg.gain.value = f0 * 0.035; vib.connect(vg); vg.connect(os.frequency);
+    [[850, 5, 1], [1300, 6, 0.55]].forEach(([fq, q, lv]) => { const bp = ac.createBiquadFilter(), bg = ac.createGain(); bp.type = 'bandpass'; bp.frequency.value = fq; bp.Q.value = q; bg.gain.value = lv; os.connect(bp); bp.connect(bg); bg.connect(mix); });
+    lp.type = 'lowpass'; lp.frequency.value = 3000; mix.connect(lp); lp.connect(eg);
+    eg.gain.setValueAtTime(0.0001, t); eg.gain.linearRampToValueAtTime(g, t + 0.07); eg.gain.setValueAtTime(g, t + dur * 0.5); eg.gain.exponentialRampToValueAtTime(0.0001, t + dur); eg.connect(out);
+    os.start(t); vib.start(t); os.stop(t + dur + 0.05); vib.stop(t + dur + 0.05);
+  }
   const P = {
-    tap() { tone(N.D5, 0, 0.09, { g: 0.1, from: 1.02 }); tick(0, 0.04); },
-    tick() { tone(N.A5, 0, 0.05, { g: 0.04 }); tick(0, 0.025, 2400); },
-    open() { tone(N.D5, 0, 0.14, { g: 0.09, send: 0.25 }); tone(N.A5, 0.06, 0.22, { g: 0.08, send: 0.3 }); },
-    close() { tone(N.A5, 0, 0.1, { g: 0.07 }); tone(N.D5, 0.06, 0.2, { g: 0.08, send: 0.25 }); },
-    dockOpen() { [N.A4, N.D5, N.F5, N.A5].forEach((f, i) => tone(f, i * 0.034, 0.16, { g: 0.07, send: 0.22 })); },
-    dockClose() { [N.A5, N.F5, N.D5, N.A4].forEach((f, i) => tone(f, i * 0.028, 0.14, { g: 0.065, send: 0.18 })); },
-    ok() { tone(N.E5, 0, 0.12, { g: 0.09 }); tone(N.A5, 0.07, 0.3, { g: 0.1, send: 0.3 }); },
-    confirm() { [N.D5, N.F5, N.A5].forEach((f, i) => tone(f, i * 0.06, 0.28, { g: 0.09, send: 0.3 })); },
-    cancel() { tone(N.A4, 0, 0.1, { g: 0.09, to: 0.8 }); tick(0, 0.03, 1200); },
-    down() { tone(330, 0, 0.16, { g: 0.1, to: 0.5 }); },
-    place() { tone(150, 0, 0.18, { g: 0.15, to: 0.6, lp: 600, pure: true }); tick(0, 0.05, 900, 0.05); tone(N.D5, 0.06, 0.28, { g: 0.07, send: 0.3 }); },
-    del() { tone(392, 0, 0.22, { g: 0.1, to: 0.5, lp: 1800 }); tick(0.02, 0.04, 1000); },
-    gain() { tone(N.A5, 0, 0.55, { g: 0.11, send: 0.45 }); tone(N.D6, 0.09, 0.75, { g: 0.09, send: 0.5 }); tone(N.F6, 0.2, 0.7, { g: 0.045, send: 0.5 }); },
-    note() { tone(N.E5, 0, 0.22, { g: 0.07, send: 0.3 }); },
-    exp() {                                                   // 上昇する光の粒 → 和音
-      [N.D4, N.F4, N.A4, N.B4, N.D5, N.F5, N.A5, N.B5, N.D6, N.F6, N.A6].forEach((f, k) => tone(f, k * 0.2, 0.32, { g: 0.045 + k * 0.004, send: 0.4 }));
-      tone(146.83, 0, 2.6, { g: 0.05, a: 0.7, lp: 500, pure: true, sus: true });
-      [N.D5, N.F5, N.A5].forEach(f => tone(f, 2.4, 0.9, { g: 0.07, send: 0.5 }));
+    click(g = 1, f = 1) {                                     // スイッチのON/OFF: 丸みのある温かい「コトッ」を2連(コ・ト)。高域を抑え、胴(低め)の響きを残す
+      const v = rv() * f * 1.28; g *= 0.62;
+      wtick(0, 0.06 * g, 2900 * v, 0.005, 0.9); ring(0, 1700 * v, 0.014, 0.05 * g); ring(0, 2500 * v, 0.008, 0.02 * g); ring(0, 680 * v, 0.034, 0.075 * g); ring(0, 1150 * v, 0.022, 0.04 * g);
+      wtick(0.037, 0.05 * g, 2400 * v, 0.005, 0.9); ring(0.037, 1450 * v, 0.014, 0.045 * g); ring(0.037, 2100 * v, 0.008, 0.016 * g); ring(0.037, 560 * v, 0.036, 0.07 * g); ring(0.037, 940 * v, 0.022, 0.035 * g);
     },
-    imp() {                                                   // 暗転(下降) → 静寂の唸り → 読み込みバー(上昇) → 完了の和音
-      [N.A5, N.F5, N.D5, N.B4, N.A4, N.F4].forEach((f, k) => tone(f, k * 0.17, 0.3, { g: 0.06, send: 0.4 }));
-      tone(73.4, 0.9, 3.5, { g: 0.06, a: 0.5, lp: 400, pure: true, sus: true });
-      tone(120, 1.6, 2.9, { g: 0.05, a: 0.5, to: 4.3, lp: 1500, pure: true, sus: true });
-      [N.D5, N.F5, N.A5, N.B5, N.D6, N.F6].forEach((f, k) => tone(f, 1.8 + k * 0.45, 0.25, { g: 0.04, send: 0.4 }));
-      [N.D5, N.F5, N.A5, N.D6].forEach(f => tone(f, 4.55, 1.0, { g: 0.07, send: 0.5 }));
+    tap() { P.click(1, 1); },
+    tick() { P.click(0.7, 1.15); },
+    open() { P.click(1, 1.18); },                              // ボタン系はすべてカチカチ音。ON側は高め、OFF側は低め
+    close() { P.click(1, 0.82); },
+    dockOpen() { P.click(1, 1.1); P.click(0.7, 1.3); },
+    dockClose() { P.click(1, 0.9); P.click(0.7, 0.75); },
+    ok() { P.click(1, 0.95); },
+    confirm() { P.click(1, 1.15); },
+    cancel() { P.click(1, 0.8); },
+    down() { P.click(1, 0.7); },
+    place() { drum(0, 170, 0.14, 0.28, 0.5, 1200); drum(0.07, 900 * rv(), 0.05, 0.08, 0.6, 3000); },
+    del() { drum(0, 520, 0.12, 0.14, 0.4, 1500); scratch(0.02, 0.09, 0.05, 1800, 0.8); },
+    gain() { tone(N.A5, 0, 0.55, { g: 0.11 }); tone(N.D6, 0.09, 0.75, { g: 0.09 }); tone(N.F6, 0.2, 0.7, { g: 0.045 }); },
+    note() { tone(N.E5, 0, 0.22, { g: 0.05 }); },
+    exp() { morse('EXPORTING', 0.05, 2.45, 0.006); proc(0, 2.5, 0.013, 300, 2200, 0.55); blip(1900, 2.5, 0.012, 0.02); },        // 書き出し中: 無作為な高さの電子音 → 終了は余韻なく止まる
+    imp() {                                                   // 読み込み: 暗転中はまばらに → 全面が暗くなる瞬間に短い電子音 → バー上昇中は処理音が密に → 余韻なく停止
+      morse('IMPORTING', 0.05, 4.4, 0.006); proc(0, 1.0, 0.011, 300, 2200, 2.2); blip(1500, 1.3, 0.02, 0.02); proc(1.6, 4.5, 0.013, 250, 2400, 0.5); blip(2200, 4.5, 0.012, 0.02);
     },
-    crt() { tone(2600, 0, 0.36, { g: 0.09, to: 0.03, type: 'triangle', lp: 6000, pure: true }); tick(0, 0.05, 3000, 0.12); tone(70, 0.4, 0.3, { g: 0.18, to: 0.5, pure: true, lp: 300 }); }
+    crt() {                                                   // 回線の突然の遮断: アナログ回線の搬送波(ゆらぎ付き)+ハム+ヒスが鳴っている → リレーのカチッと共に一瞬で断ち切れる → 無音の中に微かなパチパチ
+      const t = ac.currentTime, D = 0.2, cut = (gn, v) => { gn.gain.setValueAtTime(v, t + D); gn.gain.setValueAtTime(0.0001, t + D + 0.001); };
+      const hum = ac.createOscillator(), hl = ac.createBiquadFilter(), hg = ac.createGain();               // 電源ハム 60Hz
+      hum.type = 'sawtooth'; hum.frequency.value = 60; hl.type = 'lowpass'; hl.frequency.value = 420; hg.gain.setValueAtTime(0.0001, t); hg.gain.linearRampToValueAtTime(0.016, t + 0.03); cut(hg, 0.016);
+      hum.connect(hl); hl.connect(hg); hg.connect(out); hum.start(t); hum.stop(t + D + 0.01);
+      const car = ac.createOscillator(), lf = ac.createOscillator(), ld = ac.createGain(), cg = ac.createGain();   // 回線の搬送波: ゆっくり揺れる(アナログの不安定さ)
+      car.type = 'sine'; car.frequency.value = 1180; lf.frequency.value = 6.5; ld.gain.value = 22; lf.connect(ld); ld.connect(car.frequency);
+      cg.gain.setValueAtTime(0.0001, t); cg.gain.linearRampToValueAtTime(0.009, t + 0.04); cut(cg, 0.009);
+      car.connect(cg); cg.connect(out); car.start(t); lf.start(t); car.stop(t + D + 0.01); lf.stop(t + D + 0.01);
+      const ns = ac.createBufferSource(), bp = ac.createBiquadFilter(), ng = ac.createGain(), am = ac.createOscillator(), ad = ac.createGain();   // ザーッというヒス。音量がうねる
+      ns.buffer = white; ns.loop = true; bp.type = 'bandpass'; bp.Q.value = 0.5; bp.frequency.setValueAtTime(2600, t); bp.frequency.linearRampToValueAtTime(1800, t + D);
+      ng.gain.setValueAtTime(0.0001, t); ng.gain.linearRampToValueAtTime(0.022, t + 0.03); am.frequency.value = 11; ad.gain.value = 0.007; am.connect(ad); ad.connect(ng.gain); cut(ng, 0.022);
+      ns.connect(bp); bp.connect(ng); ng.connect(out); ns.start(t); am.start(t); ns.stop(t + D + 0.01); am.stop(t + D + 0.01);
+      wtick(D, 0.07, 1700, 0.007, 0.7); wtick(D, 0.035, 4200, 0.003, 1.0); ring(D, 380, 0.045, 0.045);   // ぷつん: 鳴っていた音が一瞬でなくなる。その瞬間に短い破裂音を置く
+      wtick(D, 0.06, 2400, 0.006, 1.2); ring(D, 900, 0.03, 0.035); ring(D, 3000, 0.008, 0.02); drum(D, 120, 0.05, 0.04, 0.5);        // 遮断の「カチッ」(リレー/接点が切れる音)
+      [0.1, 0.15, 0.22, 0.3].forEach((at, i) => wtick(D + at, 0.02 - i * 0.003, 2200 + Math.random() * 2500, 0.003 + Math.random() * 0.004, 3));   // 切れた回線の微かなパチパチ
+    }
   };
-  const call = k => () => { if (ok()) P[k](); };
+  let lastClk = 0; const SUP = { tap: 1, tick: 1, open: 1, close: 1, ok: 1, cancel: 1, confirm: 1, down: 1, dockOpen: 1, dockClose: 1, gain: 1, note: 1 };   // ボタン音を優先: クリック直後に同じ操作から鳴る他の効果音は鳴らさない
+  const call = k => () => { if (SUP[k] && performance.now() - lastClk < 160) return; if (ok()) P[k](); };
   return {
     get on() { return S.on; }, get vol() { return S.vol; },
-    set(on, vol) { S.on = !!on; S.vol = clamp(vol, 0, 1); if (out) out.gain.value = S.vol * MASTER; try { localStorage.setItem(KEY + '.sfx', JSON.stringify(S)); } catch (e) {} },
+    set(on, vol) { S.on = !!on; S.vol = clamp(vol, 0, 1); if (out) out.gain.value = S.vol * MASTER; if (dry) dry.gain.value = S.vol * MASTER; try { localStorage.setItem(KEY + '.sfx', JSON.stringify(S)); } catch (e) {} },
     unlock() { if (!S.on) return; mediaUnlock(); if (init() && ac.state !== 'running') ac.resume().catch(() => {}); },
     tap: call('tap'), tick: call('tick'), open: call('open'), close: call('close'), dockOpen: call('dockOpen'), dockClose: call('dockClose'),
     ok: call('ok'), confirm: call('confirm'), cancel: call('cancel'), down: call('down'), place: call('place'), del: call('del'), gain: call('gain'), note: call('note'), imp: call('imp'),
     cine(kind) { if (kind === 'exp') { if (ok()) P.exp(); } else this.imp(); },
-    draw(c) { const n = performance.now(); if (n - lastDraw < 45 || !ok()) return; lastDraw = n; const sc = [N.D5, N.E5, N.F5, N.A5, N.B5, N.D6]; tone(c < 0 ? N.A4 : sc[c % 6], 0, 0.07, { g: 0.045 }); },
-    reset() {                                                 // 地鳴り → 噴火の轟音 → 岩の落下 → (CRT)
-      if (!ok()) return; const t = ac.currentTime, s = ac.createBufferSource(), lp = ac.createBiquadFilter();
-      s.buffer = noise; s.loop = true; lp.type = 'lowpass'; lp.frequency.value = 110; gate = ac.createGain();
-      gate.gain.setValueAtTime(0.0001, t); gate.gain.linearRampToValueAtTime(0.26, t + 3); gate.gain.linearRampToValueAtTime(0.5, t + 3.2); gate.gain.linearRampToValueAtTime(0.3, t + 9); gate.gain.linearRampToValueAtTime(0.0001, t + 15.5);
-      s.connect(lp); lp.connect(gate); gate.connect(out); s.start(t); s.stop(t + 15.6);
-      tone(58, 3.05, 1.1, { g: 0.45, to: 0.55, pure: true, lp: 300 }); hit(3.05, 0.9, 0.4, 700);
-      const r = ac.createBufferSource(), bp = ac.createBiquadFilter(), rg = ac.createGain();
-      r.buffer = noise; r.loop = true; bp.type = 'bandpass'; bp.frequency.value = 650; bp.Q.value = 0.4;
-      rg.gain.setValueAtTime(0.0001, t + 3); rg.gain.linearRampToValueAtTime(0.09, t + 5); rg.gain.linearRampToValueAtTime(0.0001, t + 15);
-      r.connect(bp); bp.connect(rg); rg.connect(out); r.start(t); r.stop(t + 15.2);
-      for (let k = 0; k < 22; k++) { const at = 4 + k * 0.5 + Math.random() * 0.25; tone(80 + Math.random() * 50, at, 0.18, { g: 0.16, to: 0.55, pure: true, lp: 500 }); hit(at, 0.12, 0.12, 900); }
+    draw(c) {                                                 // 擦筆音: 鉛筆は細かく高め、消しゴムは低く柔らかい擦れ
+      const n = performance.now(); if (n - lastDraw < 45 || !ok()) return; lastDraw = n;
+      if (c < 0) scratch(0, 0.085, 0.06, 1300 + Math.random() * 300, 0.7); else scratch(0, 0.055, 0.07, 2900 + (c % 6) * 150 + Math.random() * 200, 1.4);
     },
-    crt() { if (gate) { gate.gain.cancelScheduledValues(ac.currentTime); gate.gain.setValueAtTime(gate.gain.value, ac.currentTime); gate.gain.linearRampToValueAtTime(0.0001, ac.currentTime + 0.12); } if (ok()) P.crt(); },
+    reset() {                                                 // 地響き(地震) → 噴火 → 岩の落下 + 村人の叫び声 → (CRT)。映像の時間軸(CAT_Q/CAT_K)に合わせる
+      if (!ok()) return; const t = ac.currentTime, E = (1.4 + CAT_Q) / CAT_K, TOT = CAT_PRE;   // E: 噴火(閃光)の瞬間
+      gate = ac.createGain();                                 // 地響きの音量: 噴火の前はごく小さく、ゆっくり育つ。ノイズは使わない
+      gate.gain.setValueAtTime(0.0001, t); gate.gain.linearRampToValueAtTime(0.025, t + 0.6); gate.gain.linearRampToValueAtTime(0.075, t + E); gate.gain.linearRampToValueAtTime(0.24, t + E + 0.3); gate.gain.linearRampToValueAtTime(0.18, t + TOT - 3); gate.gain.linearRampToValueAtTime(0.0001, t + TOT + 0.2);
+      const trem = ac.createGain(), lfo = ac.createOscillator(), ld = ac.createGain(), mix = ac.createGain(), lp = ac.createBiquadFilter();
+      trem.gain.value = 0.7; lfo.frequency.value = 5.5; ld.gain.value = 0.3; lfo.connect(ld); ld.connect(trem.gain);
+      [[41, 'sine', 1], [55, 'sine', 0.8], [82, 'triangle', 0.3], [110, 'triangle', 0.14]].forEach(([f, type, lv], i) => {   // 小さな端末のスピーカーでも感じられるよう倍音を重ねる
+        const o = ac.createOscillator(), og = ac.createGain(); o.type = type; o.frequency.setValueAtTime(f, t); o.frequency.linearRampToValueAtTime(f * (1 + 0.04 * (i % 2 ? 1 : -1)), t + TOT);
+        og.gain.value = lv; o.connect(og); og.connect(mix); o.start(t); o.stop(t + TOT + 0.3);
+      });
+      lp.type = 'lowpass'; lp.frequency.value = 180; mix.connect(lp); lp.connect(trem); trem.connect(gate); gate.connect(dry); lfo.start(t); lfo.stop(t + TOT + 0.3);
+      for (let k = 0; k < 6; k++) tone(44 + k * 2, E * (0.12 + 0.17 * k), 0.4, { g: 0.045 + k * 0.009, to: 0.7, pure: true, lp: 200, dry: 1 });   // 前触れの鈍い揺れ（低音のみ）
+      tone(58, E, 1.1, { g: 0.4, to: 0.55, pure: true, lp: 300 }); hit(E, 0.7, 0.2, 500);   // 噴火
+      const r = ac.createBufferSource(), bp = ac.createBiquadFilter(), rg = ac.createGain();         // 噴火の轟音（噴火後のみ・控えめ）
+      r.buffer = noise; r.loop = true; bp.type = 'bandpass'; bp.frequency.value = 650; bp.Q.value = 0.4;
+      rg.gain.setValueAtTime(0.0001, t); rg.gain.setValueAtTime(0.0001, t + E); rg.gain.linearRampToValueAtTime(0.05, t + E + 2); rg.gain.linearRampToValueAtTime(0.0001, t + TOT);   // 開始前は必ず無音（初期値1のまま鳴っていたのが噴火前のノイズの正体）
+      r.connect(bp); bp.connect(rg); rg.connect(out); r.start(t + E); r.stop(t + TOT + 0.2);
+      for (let k = 0; k < 22; k++) { const at = (5.3 + k * 0.3) / CAT_K + Math.random() * 0.2; if (at > TOT - 0.3) break; tone(80 + Math.random() * 50, at, 0.18, { g: 0.16, to: 0.55, pure: true, lp: 500 }); hit(at, 0.12, 0.1, 900); }   // 岩の落下
+      for (let k = 0; k < 10; k++) { const at = E + 0.3 + k * 0.7 + Math.random() * 0.4; if (at > TOT - 0.8) break; const kid = k % 4 === 3; scream(at, kid ? 640 + Math.random() * 160 : 300 + Math.random() * 200, 0.6 + Math.random() * 0.45, kid ? 0.03 : 0.04); }   // 叫び声（遠景・控えめ）
+    },
+    crt() { if (gate) { gate.gain.cancelScheduledValues(ac.currentTime); gate.gain.setValueAtTime(gate.gain.value, ac.currentTime); gate.gain.linearRampToValueAtTime(0.0001, ac.currentTime + 0.02); } if (ok()) P.crt(); },
     click(b) {                                                // ボタンの種類ごとに音を振り分け
       const id = b.id, m = { recBtn: 0, buildBtn: 0, goBtn: 0, bClose: 0, lClose: 0, bPlace: 0, bDel: 0, pEdit: 0, sSfx: 0, setBtn: 'open', placeBtn: 'open', pList: 'open', sClose: 'close',
         pDone: 'ok', pvOk: 'ok', cOk: 'ok', pvNo: 'cancel', cNo: 'cancel', pUn: 'down', bCreate: 'confirm', bUndo: 'tick', bRedo: 'tick' };
-      if (id === 'dockT') return $('dock').classList.contains('open') ? this.dockClose() : this.dockOpen();
-      if (id in m) { if (m[id]) this[m[id]](); return; }
-      if (b.matches('[data-tool],[data-c],[data-dx]')) return this.tick();
-      this.tap();
+      const go = f => { f(); lastClk = performance.now(); };
+      if (id === 'dockT') return go(() => $('dock').classList.contains('open') ? this.dockClose() : this.dockOpen());
+      if (id in m) { if (m[id]) go(() => this[m[id]]()); return; }
+      if (b.matches('[data-tool],[data-c],[data-dx]')) return go(() => this.tick());
+      go(() => this.tap());
     }
   };
 })();
